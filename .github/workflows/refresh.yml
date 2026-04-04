@@ -1,0 +1,66 @@
+name: Refresh KPI Dashboard
+
+on:
+  schedule:
+    # Run every day at 06:00 UTC
+    - cron: '0 6 * * *'
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+# Allow the workflow to write back to the repo and deploy to Pages
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+# Only one deployment at a time; cancel in-progress runs on new push
+concurrency:
+  group: dashboard-deploy
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      # ── 1. Checkout ────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # Fetch full history so we can push back without conflicts
+          fetch-depth: 0
+
+      # ── 2. Node.js ─────────────────────────────────────────────────
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # ── 3. Build dashboard ─────────────────────────────────────────
+      - name: Build dashboard
+        run: node build.js --ci
+
+      # ── 4. Commit updated HTML back to main ────────────────────────
+      - name: Commit updated dashboard
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add public/index.html
+          git diff --staged --quiet || git commit -m "chore: refresh dashboard [skip ci]"
+          git push
+
+      # ── 5. Upload artifact for GitHub Pages ────────────────────────
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: public/
+
+      # ── 6. Deploy to GitHub Pages ──────────────────────────────────
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
