@@ -294,6 +294,24 @@ function computeKPIs(rows) {
 
   const kpi2 = { sumPos, sumNeg, net: sumPos + sumNeg, top10: top10Savings };
 
+  // Monthly savings — group by YYYY-MM using poDate or prReceived
+  const monthlyMap = {};
+  for (const r of rows) {
+    const d = r.poDate || r.prReceived;
+    if (!d || r.savings === null) continue;
+    const month = fmtDate(d).slice(0, 7); // YYYY-MM
+    if (!monthlyMap[month]) monthlyMap[month] = 0;
+    monthlyMap[month] += r.savings;
+  }
+  const monthlySavings = Object.entries(monthlyMap)
+    .sort(([a],[b]) => a.localeCompare(b))
+    .map(([month, total]) => ({ month, total: Math.round(total) }));
+  const avgMonthlySavings = monthlySavings.length
+    ? Math.round(monthlySavings.reduce((s,m) => s + m.total, 0) / monthlySavings.length)
+    : 0;
+  kpi2.monthly = monthlySavings;
+  kpi2.avgMonthly = avgMonthlySavings;
+
   // ── KPI 3: Competitive vs Direct ──────────────────────────────────────────
   let compCount = 0, compValue = 0, dirCount = 0, dirValue = 0;
   for (const r of rows) {
@@ -361,6 +379,15 @@ function computeKPIs(rows) {
   // ── Stage list ────────────────────────────────────────────────────────────
   const stages = [...new Set(rows.map(r => r.stage).filter(Boolean))].sort();
 
+  // Projects (from projRef multi-lookup field, split by ';')
+  const projectSet = new Set();
+  for (const r of rows) {
+    if (r.projRef) {
+      r.projRef.split(';').map(p => p.trim()).filter(Boolean).forEach(p => projectSet.add(p));
+    }
+  }
+  const projects = [...projectSet].sort();
+
   // ── Last modified date ────────────────────────────────────────────────────
   const modDates = rows.map(r => r.modified).filter(Boolean);
   const lastUpdated = modDates.length
@@ -380,654 +407,501 @@ function computeKPIs(rows) {
     dateClosed:   fmtDate(r.dateClosed),
   }));
 
-  return { kpi1, kpi2, kpi3, kpi4, kpi5, pipeline, years, buyers, stages, lastUpdated, rows: serialRows, avgCycle };
+  return { kpi1, kpi2, kpi3, kpi4, kpi5, pipeline, years, buyers, stages, projects, lastUpdated, rows: serialRows, avgCycle };
 }
+
 
 // ── HTML generator ────────────────────────────────────────────────────────────
 
 function generateHTML(data) {
   const dataJson = JSON.stringify(data);
-
   return `<!DOCTYPE html>
-<html lang="en" class="light">
+<html lang="en" data-theme="light">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>FAO Ukraine – Procurement KPI Dashboard</title>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js" crossorigin="anonymous"></script>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      darkMode: 'class',
-      theme: {
-        extend: {
-          colors: {
-            fao: {
-              blue:  '#009FDA',
-              navy:  '#003366',
-              green: '#4CAF50',
-              amber: '#FF9800',
-              red:   '#F44336',
-            }
-          }
-        }
-      }
-    };
-  </script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js" crossorigin="anonymous"><\/script>
   <style>
     :root {
-      --fao-blue:  #009FDA;
-      --fao-navy:  #003366;
-      --fao-green: #4CAF50;
-      --fao-amber: #FF9800;
-      --fao-red:   #F44336;
+      --bg:#f1f5f9; --card:#fff; --text:#1a2e44; --muted:#64748b;
+      --border:#e2e8f0; --navy:#003366; --blue:#009FDA;
+      --green:#22c55e; --amber:#f59e0b; --red:#ef4444;
+      --shadow:0 2px 10px rgba(0,0,0,0.07);
     }
-    body { font-family: 'Segoe UI', Arial, sans-serif; }
-    .dark body { background: #0f172a; color: #e2e8f0; }
-    canvas { max-height: 320px; }
-    .chart-card { position: relative; }
-    .export-btn {
-      position: absolute; top: 0.5rem; right: 0.5rem;
-      font-size: 0.7rem; padding: 2px 8px;
-      background: rgba(0,159,218,0.1); border: 1px solid #009FDA;
-      color: #009FDA; border-radius: 4px; cursor: pointer;
-      transition: background 0.2s;
+    [data-theme="dark"] {
+      --bg:#0f172a; --card:#1e293b; --text:#e2e8f0; --muted:#94a3b8;
+      --border:#334155; --shadow:0 2px 10px rgba(0,0,0,0.3);
     }
-    .export-btn:hover { background: rgba(0,159,218,0.25); }
-    .kpi-card { transition: transform 0.15s; }
-    .kpi-card:hover { transform: translateY(-2px); }
-    /* Modal */
-    #modal-overlay {
-      display: none; position: fixed; inset: 0;
-      background: rgba(0,0,0,0.5); z-index: 50;
-      align-items: center; justify-content: center;
+    *{box-sizing:border-box;margin:0;padding:0;}
+    body{font-family:'Segoe UI',Arial,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;transition:background .25s,color .25s;}
+
+    /* ── Header ── */
+    .hdr{background:var(--navy);color:#fff;padding:10px 24px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;}
+    .hdr-left{display:flex;align-items:center;gap:14px;}
+    .hdr-title{font-size:16px;font-weight:700;line-height:1.2;}
+    .hdr-sub{font-size:10px;opacity:.6;margin-top:2px;}
+    /* Theme toggle */
+    .toggle-wrap{display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none;}
+    .toggle-wrap input{display:none;}
+    .toggle-track{width:40px;height:22px;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.3);border-radius:11px;position:relative;transition:background .25s;}
+    .toggle-track::after{content:'';position:absolute;top:3px;left:3px;width:14px;height:14px;border-radius:50%;background:#fff;transition:transform .25s;}
+    input:checked + .toggle-track{background:var(--blue);border-color:var(--blue);}
+    input:checked + .toggle-track::after{transform:translateX(18px);}
+
+    /* ── Filter bar ── */
+    .filter-bar{background:var(--card);border-bottom:1px solid var(--border);padding:10px 24px;display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start;}
+    .filter-group{display:flex;flex-direction:column;gap:5px;}
+    .filter-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:var(--muted);}
+    .pills{display:flex;flex-wrap:wrap;gap:4px;}
+    .pill{padding:3px 12px;border-radius:20px;font-size:11.5px;font-weight:500;border:1.5px solid var(--border);background:var(--card);color:var(--text);cursor:pointer;transition:all .13s;white-space:nowrap;}
+    .pill:hover{border-color:var(--blue);color:var(--blue);}
+    .pill.on{background:var(--navy);border-color:var(--navy);color:#fff;}
+
+    /* ── KPI strip ── */
+    .kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px;}
+    .kpi-card{background:var(--card);border-radius:12px;padding:16px 20px;box-shadow:var(--shadow);border-left:4px solid var(--blue);display:flex;flex-direction:column;gap:3px;}
+    .kpi-lbl{font-size:10px;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);font-weight:700;}
+    .kpi-val{font-size:28px;font-weight:800;line-height:1.1;}
+    .kpi-sub{font-size:11px;color:var(--muted);}
+
+    /* ── Charts ── */
+    .content{max-width:1200px;margin:0 auto;padding:20px 20px;}
+    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;}
+    .full{grid-column:1/-1;}
+    .chart-card{background:var(--card);border-radius:12px;padding:18px 20px;box-shadow:var(--shadow);position:relative;}
+    .chart-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:14px;}
+    .export-btn{position:absolute;top:12px;right:12px;font-size:10px;padding:2px 8px;background:rgba(0,159,218,.1);border:1px solid #009FDA;color:#009FDA;border-radius:4px;cursor:pointer;font-family:inherit;}
+    .export-btn:hover{background:rgba(0,159,218,.25);}
+    canvas{max-height:300px;}
+
+    /* ── Buyer workload cards ── */
+    .buyer-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px;}
+    .buyer-card{background:var(--card);border-radius:10px;padding:14px 16px;box-shadow:var(--shadow);cursor:pointer;transition:transform .12s;}
+    .buyer-card:hover{transform:translateY(-2px);}
+    .buyer-name{font-weight:700;font-size:13px;color:var(--navy);margin-bottom:8px;}
+    [data-theme="dark"] .buyer-name{color:var(--blue);}
+    .buyer-bar-bg{background:var(--border);border-radius:4px;height:5px;overflow:hidden;margin:5px 0;}
+    .buyer-bar-fg{height:5px;border-radius:4px;background:var(--blue);}
+    .buyer-stats{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);}
+
+    /* ── Modal ── */
+    #modal-ov{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:100;align-items:center;justify-content:center;}
+    #modal-ov.open{display:flex;}
+    #modal-box{background:var(--card);border-radius:14px;max-width:90vw;width:750px;max-height:88vh;overflow-y:auto;padding:24px;position:relative;}
+    #modal-close{position:absolute;top:12px;right:16px;font-size:20px;cursor:pointer;color:var(--muted);background:none;border:none;}
+    #modal-title{font-weight:700;font-size:15px;margin-bottom:16px;color:var(--navy);}
+    [data-theme="dark"] #modal-title{color:var(--blue);}
+    table.drill{width:100%;border-collapse:collapse;font-size:.8rem;}
+    table.drill th{background:var(--navy);color:#fff;padding:7px 10px;text-align:left;font-size:11px;}
+    table.drill td{padding:6px 10px;border-bottom:1px solid var(--border);}
+    table.drill tr:hover td{background:rgba(0,159,218,.06);}
+
+    footer{text-align:center;font-size:11px;color:var(--muted);padding:20px;border-top:1px solid var(--border);margin-top:8px;}
+
+    @media(max-width:768px){
+      .kpi-row{grid-template-columns:1fr 1fr;}
+      .grid2{grid-template-columns:1fr;}
+      .full{grid-column:auto;}
     }
-    #modal-overlay.open { display: flex; }
-    #modal-box {
-      background: white; border-radius: 12px;
-      max-width: 90vw; width: 700px; max-height: 85vh;
-      overflow-y: auto; padding: 1.5rem; position: relative;
-    }
-    .dark #modal-box { background: #1e293b; color: #e2e8f0; }
-    #modal-close {
-      position: absolute; top: 0.75rem; right: 1rem;
-      font-size: 1.4rem; cursor: pointer; color: #64748b;
-    }
-    table.drill { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
-    table.drill th { background: #003366; color: white; padding: 6px 10px; text-align: left; }
-    table.drill td { padding: 5px 10px; border-bottom: 1px solid #e2e8f0; }
-    .dark table.drill td { border-color: #334155; }
-    table.drill tr:hover td { background: rgba(0,159,218,0.08); }
-    /* Filter bar */
-    select.filter-sel {
-      padding: 5px 10px; border: 1px solid #cbd5e1;
-      border-radius: 6px; font-size: 0.85rem;
-      background: white; cursor: pointer;
-    }
-    .dark select.filter-sel { background: #1e293b; border-color: #475569; color: #e2e8f0; }
   </style>
 </head>
-<body class="bg-gray-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200 min-h-screen">
+<body>
 
-<!-- ════════════════ HEADER ════════════════ -->
-<header class="bg-[#003366] text-white px-6 py-4 shadow-lg">
-  <div class="max-w-screen-xl mx-auto flex items-center justify-between flex-wrap gap-3">
-    <div class="flex items-center gap-4">
-      <!-- FAO logo placeholder -->
-      <div class="w-10 h-10 rounded-full bg-[#009FDA] flex items-center justify-center font-bold text-white text-sm select-none">FAO</div>
-      <div>
-        <h1 class="text-xl font-bold leading-tight">Ukraine Procurement KPI Dashboard</h1>
-        <p class="text-xs text-blue-200">Last updated: <span id="last-updated"></span></p>
-      </div>
-    </div>
-    <div class="flex items-center gap-3">
-      <!-- Filter bar -->
-      <select id="filter-year"  class="filter-sel" title="Filter by year">
-        <option value="">All Years</option>
-      </select>
-      <select id="filter-buyer" class="filter-sel" title="Filter by buyer">
-        <option value="">All Buyers</option>
-      </select>
-      <select id="filter-stage" class="filter-sel" title="Filter by stage">
-        <option value="">All Stages</option>
-      </select>
-      <button id="reset-filters" class="text-xs px-3 py-1 bg-white/10 hover:bg-white/20 rounded border border-white/30 transition">Reset</button>
-      <!-- Dark mode toggle -->
-      <button id="theme-toggle" class="ml-2 px-3 py-1 bg-white/10 hover:bg-white/20 rounded border border-white/30 text-xs transition">Dark</button>
+<!-- ── HEADER ── -->
+<header class="hdr">
+  <div class="hdr-left">
+    <!-- FAO logo SVG (simplified emblem) -->
+    <svg width="38" height="38" viewBox="0 0 38 38" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="19" cy="19" r="18" stroke="white" stroke-width="1.2" fill="none"/>
+      <!-- Wheat left -->
+      <line x1="9" y1="28" x2="12" y2="12" stroke="white" stroke-width="1"/>
+      <ellipse cx="10.5" cy="26" rx="2.2" ry="1.2" fill="white" transform="rotate(-20 10.5 26)"/>
+      <ellipse cx="10" cy="23" rx="2.2" ry="1.2" fill="white" transform="rotate(-15 10 23)"/>
+      <ellipse cx="11" cy="20" rx="2" ry="1.1" fill="white" transform="rotate(-10 11 20)"/>
+      <!-- Wheat right -->
+      <line x1="29" y1="28" x2="26" y2="12" stroke="white" stroke-width="1"/>
+      <ellipse cx="27.5" cy="26" rx="2.2" ry="1.2" fill="white" transform="rotate(20 27.5 26)"/>
+      <ellipse cx="28" cy="23" rx="2.2" ry="1.2" fill="white" transform="rotate(15 28 23)"/>
+      <ellipse cx="27" cy="20" rx="2" ry="1.1" fill="white" transform="rotate(10 27 20)"/>
+      <!-- Globe circle -->
+      <circle cx="19" cy="21" r="6" stroke="white" stroke-width="1" fill="none"/>
+      <line x1="13" y1="21" x2="25" y2="21" stroke="white" stroke-width=".8"/>
+      <ellipse cx="19" cy="21" rx="3" ry="6" stroke="white" stroke-width=".8" fill="none"/>
+      <!-- FAO text -->
+      <text x="19" y="12" text-anchor="middle" font-size="5.5" font-weight="bold" fill="white" font-family="Arial">FAO</text>
+    </svg>
+    <div>
+      <div class="hdr-title">Ukraine Procurement KPI Dashboard</div>
+      <div class="hdr-sub">Last updated: <span id="last-updated"></span> &nbsp;·&nbsp; Food and Agriculture Organization of the UN</div>
     </div>
   </div>
+  <label class="toggle-wrap" title="Toggle dark mode">
+    <span style="font-size:13px;">☀️</span>
+    <input type="checkbox" id="theme-chk"/>
+    <div class="toggle-track"></div>
+    <span style="font-size:13px;">🌙</span>
+  </label>
 </header>
 
-<!-- ════════════════ KPI CARDS ROW ════════════════ -->
-<main class="max-w-screen-xl mx-auto px-4 py-6 space-y-8">
+<!-- ── FILTER BAR ── -->
+<div class="filter-bar" id="filter-bar">
+  <div class="filter-group">
+    <div class="filter-label">📅 Year</div>
+    <div class="pills" id="pills-year"></div>
+  </div>
+  <div class="filter-group">
+    <div class="filter-label">👤 Buyer</div>
+    <div class="pills" id="pills-buyer"></div>
+  </div>
+  <div class="filter-group">
+    <div class="filter-label">📁 Project</div>
+    <div class="pills" id="pills-project"></div>
+  </div>
+</div>
 
-  <section id="kpi-cards" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-    <!-- injected by JS -->
-  </section>
+<!-- ── MAIN ── -->
+<div class="content">
 
-  <!-- ════ CHARTS GRID ════ -->
-  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+  <!-- KPI summary strip -->
+  <div class="kpi-row" id="kpi-row"></div>
 
-    <!-- KPI 1 – Cycle Time -->
-    <div class="chart-card bg-white dark:bg-slate-800 rounded-xl shadow p-4">
+  <!-- Charts row 1: Cycle Time + Competitive -->
+  <div class="grid2">
+    <div class="chart-card">
       <button class="export-btn" onclick="exportChart('chart-cycle')">PNG</button>
-      <h2 class="font-semibold text-sm mb-3 text-slate-600 dark:text-slate-300 uppercase tracking-wide">KPI 1 – Avg Cycle Time by Method (days)</h2>
+      <div class="chart-title">KPI 1 – Avg Cycle Time by Method (days)</div>
       <canvas id="chart-cycle"></canvas>
     </div>
-
-    <!-- KPI 2 – Savings -->
-    <div class="chart-card bg-white dark:bg-slate-800 rounded-xl shadow p-4">
-      <button class="export-btn" onclick="exportChart('chart-savings')">PNG</button>
-      <h2 class="font-semibold text-sm mb-3 text-slate-600 dark:text-slate-300 uppercase tracking-wide">KPI 2 – Top 10 Savings (USD)</h2>
-      <canvas id="chart-savings"></canvas>
-    </div>
-
-    <!-- KPI 3 – Competitive vs Direct -->
-    <div class="chart-card bg-white dark:bg-slate-800 rounded-xl shadow p-4">
+    <div class="chart-card">
       <button class="export-btn" onclick="exportChart('chart-comp')">PNG</button>
-      <h2 class="font-semibold text-sm mb-3 text-slate-600 dark:text-slate-300 uppercase tracking-wide">KPI 3 – Competitive vs Direct (count)</h2>
+      <div class="chart-title">KPI 3 – Competitive vs Direct</div>
       <canvas id="chart-comp"></canvas>
     </div>
+  </div>
 
-    <!-- KPI 4 – Plan Compliance -->
-    <div class="chart-card bg-white dark:bg-slate-800 rounded-xl shadow p-4">
+  <!-- Charts row 2: Savings over time (full width) -->
+  <div class="grid2">
+    <div class="chart-card full">
+      <button class="export-btn" onclick="exportChart('chart-savings')">PNG</button>
+      <div class="chart-title">KPI 2 – Savings per Month (USD) with Average</div>
+      <canvas id="chart-savings"></canvas>
+    </div>
+  </div>
+
+  <!-- Charts row 3: Plan Compliance + Buyer Workload -->
+  <div class="grid2" style="margin-bottom:16px;">
+    <div class="chart-card">
       <button class="export-btn" onclick="exportChart('chart-plan')">PNG</button>
-      <h2 class="font-semibold text-sm mb-3 text-slate-600 dark:text-slate-300 uppercase tracking-wide">KPI 4 – Plan Compliance</h2>
+      <div class="chart-title">KPI 4 – Plan Compliance</div>
       <canvas id="chart-plan"></canvas>
     </div>
-
-    <!-- KPI 5 – Buyer Workload -->
-    <div class="chart-card bg-white dark:bg-slate-800 rounded-xl shadow p-4 lg:col-span-2">
-      <button class="export-btn" onclick="exportChart('chart-buyer')">PNG</button>
-      <h2 class="font-semibold text-sm mb-3 text-slate-600 dark:text-slate-300 uppercase tracking-wide">KPI 5 – Buyer Workload</h2>
-      <canvas id="chart-buyer"></canvas>
+    <div class="chart-card">
+      <div class="chart-title">KPI 5 – Buyer Workload</div>
+      <div class="buyer-grid" id="buyer-grid"></div>
     </div>
+  </div>
 
-    <!-- Pipeline -->
-    <div class="chart-card bg-white dark:bg-slate-800 rounded-xl shadow p-4 lg:col-span-2">
+  <!-- Pipeline (full width) -->
+  <div class="grid2">
+    <div class="chart-card full">
       <button class="export-btn" onclick="exportChart('chart-pipeline')">PNG</button>
-      <h2 class="font-semibold text-sm mb-3 text-slate-600 dark:text-slate-300 uppercase tracking-wide">Pipeline – Items per Procurement Stage</h2>
+      <div class="chart-title">Pipeline – Items per Procurement Stage</div>
       <canvas id="chart-pipeline"></canvas>
     </div>
-
   </div>
-</main>
 
-<!-- ════════════════ FOOTER ════════════════ -->
-<footer class="text-center text-xs text-slate-400 py-6 border-t border-slate-200 dark:border-slate-700 mt-4">
-  Data source: FAO Ukraine Procurement Tracking SharePoint List | Refreshed daily via GitHub Actions
-</footer>
+</div>
 
-<!-- ════════════════ MODAL ════════════════ -->
-<div id="modal-overlay" role="dialog" aria-modal="true">
+<footer>Data source: FAO Ukraine Procurement Tracking SharePoint List &nbsp;·&nbsp; Refreshed daily via GitHub Actions</footer>
+
+<!-- ── MODAL ── -->
+<div id="modal-ov" role="dialog" aria-modal="true">
   <div id="modal-box">
-    <span id="modal-close" onclick="closeModal()" aria-label="Close">&times;</span>
-    <h3 id="modal-title" class="font-bold text-base mb-4 text-[#003366] dark:text-[#009FDA]"></h3>
+    <button id="modal-close" onclick="closeModal()" aria-label="Close">&times;</button>
+    <div id="modal-title"></div>
     <div id="modal-content"></div>
   </div>
 </div>
 
 <script>
-// ════════════════════════════════════════════════════════════════════
-// Embedded data
-// ════════════════════════════════════════════════════════════════════
 const DASHBOARD_DATA = ${dataJson};
 
-// ════════════════════════════════════════════════════════════════════
-// State
-// ════════════════════════════════════════════════════════════════════
-let activeFilters = { year: '', buyer: '', stage: '' };
-const chartRegistry = {};   // id → Chart instance
+// ── State ──────────────────────────────────────────────────────────
+let AF = { year:'', buyer:'', project:'' };
+const CR = {};
 
-// ════════════════════════════════════════════════════════════════════
-// Helpers
-// ════════════════════════════════════════════════════════════════════
-function fmt(n, dec = 0) {
-  if (n === null || n === undefined) return '–';
-  return n.toLocaleString('en-US', { maximumFractionDigits: dec, minimumFractionDigits: dec });
-}
-function fmtUSD(n) {
-  if (n === null || n === undefined) return '–';
-  return '$' + fmt(n, 0);
-}
-function isDark() { return document.documentElement.classList.contains('dark'); }
-function gridColor() { return isDark() ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.07)'; }
-function textColor() { return isDark() ? '#94a3b8' : '#64748b'; }
+// ── Helpers ────────────────────────────────────────────────────────
+function fmt(n,d=0){ return n==null?'–':n.toLocaleString('en-US',{maximumFractionDigits:d,minimumFractionDigits:d}); }
+function fmtUSD(n){ return n==null?'–':'$'+fmt(n,0); }
+function isDark(){ return document.documentElement.getAttribute('data-theme')==='dark'; }
+function gc(){ return isDark()?'rgba(255,255,255,.07)':'rgba(0,0,0,.07)'; }
+function tc(){ return isDark()?'#94a3b8':'#64748b'; }
 
-// ════════════════════════════════════════════════════════════════════
-// Filter helpers
-// ════════════════════════════════════════════════════════════════════
-function filteredRows() {
-  return DASHBOARD_DATA.rows.filter(r => {
-    if (activeFilters.year  && String(r.year)  !== activeFilters.year)  return false;
-    if (activeFilters.buyer && r.buyer !== activeFilters.buyer) return false;
-    if (activeFilters.stage && r.stage !== activeFilters.stage) return false;
+// ── Filter rows ────────────────────────────────────────────────────
+function filteredRows(){
+  return DASHBOARD_DATA.rows.filter(r=>{
+    if(AF.year    && String(r.year)!==AF.year) return false;
+    if(AF.buyer   && r.buyer!==AF.buyer)       return false;
+    if(AF.project && !(r.projRef||'').includes(AF.project)) return false;
     return true;
   });
 }
 
-function recomputeKPIs(rows) {
+// ── Recompute KPIs client-side ─────────────────────────────────────
+function recompute(rows){
   // KPI 1
-  const cycleByMethod = {};
-  for (const r of rows) {
-    if (r.cycleTime === null || r.cycleTime < 0) continue;
-    const m = r.method || 'Unknown';
-    if (!cycleByMethod[m]) cycleByMethod[m] = [];
-    cycleByMethod[m].push(r.cycleTime);
+  const cm={};
+  for(const r of rows){
+    if(r.cycleTime===null||r.cycleTime<0) continue;
+    const m=r.method||'Unknown';
+    if(!cm[m]) cm[m]=[];
+    cm[m].push(r.cycleTime);
   }
-  const kpi1 = Object.entries(cycleByMethod).map(([method, times]) => {
-    const avg = times.reduce((a, b) => a + b, 0) / times.length;
-    return { method, avg: Math.round(avg), count: times.length,
-      color: avg <= 30 ? '#4CAF50' : avg <= 90 ? '#FF9800' : '#F44336' };
-  }).sort((a, b) => b.count - a.count);
-
-  const allCycles = rows.filter(r => r.cycleTime !== null && r.cycleTime >= 0).map(r => r.cycleTime);
-  const avgCycle = allCycles.length ? Math.round(allCycles.reduce((a, b) => a + b, 0) / allCycles.length) : 0;
+  const kpi1=Object.entries(cm).map(([method,t])=>{
+    const avg=Math.round(t.reduce((a,b)=>a+b,0)/t.length);
+    return{method,avg,count:t.length,color:avg<=30?'#22c55e':avg<=90?'#f59e0b':'#ef4444'};
+  }).sort((a,b)=>b.count-a.count);
+  const allC=rows.filter(r=>r.cycleTime!==null&&r.cycleTime>=0).map(r=>r.cycleTime);
+  const avgCycle=allC.length?Math.round(allC.reduce((a,b)=>a+b,0)/allC.length):0;
 
   // KPI 2
-  let sumPos = 0, sumNeg = 0;
-  const savingsRows = rows.filter(r => r.savings !== null);
-  for (const r of savingsRows) {
-    if (r.savings > 0) sumPos += r.savings;
-    else if (r.savings < 0) sumNeg += r.savings;
+  let sumPos=0,sumNeg=0;
+  const sRows=rows.filter(r=>r.savings!==null);
+  for(const r of sRows){ if(r.savings>0)sumPos+=r.savings; else if(r.savings<0)sumNeg+=r.savings; }
+  // Monthly savings
+  const mm={};
+  for(const r of rows){
+    const d=r.poDate||r.prReceived; if(!d||r.savings===null) continue;
+    const mo=d.slice(0,7);
+    if(!mm[mo]) mm[mo]=0; mm[mo]+=r.savings;
   }
-  const top10 = [...savingsRows].sort((a, b) => Math.abs(b.savings) - Math.abs(a.savings)).slice(0, 10)
-    .map(r => ({ id: r.id, title: r.title.slice(0, 60) + (r.title.length > 60 ? '…' : ''), savings: r.savings, buyer: r.buyer }));
-  const kpi2 = { sumPos, sumNeg, net: sumPos + sumNeg, top10 };
+  const monthly=Object.entries(mm).sort(([a],[b])=>a.localeCompare(b)).map(([month,total])=>({month,total:Math.round(total)}));
+  const avgMonthly=monthly.length?Math.round(monthly.reduce((s,m)=>s+m.total,0)/monthly.length):0;
+  const kpi2={sumPos,sumNeg,net:sumPos+sumNeg,monthly,avgMonthly};
 
   // KPI 3
-  let compCount = 0, compValue = 0, dirCount = 0, dirValue = 0;
-  for (const r of rows) {
-    if (r.isCompetitive) { compCount++; if (r.prValue) compValue += r.prValue; }
-    else                  { dirCount++;  if (r.prValue) dirValue  += r.prValue; }
-  }
-  const kpi3 = { compCount, compValue, dirCount, dirValue };
+  let cc=0,cv=0,dc=0,dv=0;
+  for(const r of rows){ if(r.isCompetitive){cc++;if(r.prValue)cv+=r.prValue;}else{dc++;if(r.prValue)dv+=r.prValue;} }
+  const kpi3={compCount:cc,compValue:cv,dirCount:dc,dirValue:dv};
 
   // KPI 4
-  const planCounts = { Planned: 0, Unplanned: 0, 'N/A': 0 };
-  const planValues = { Planned: 0, Unplanned: 0, 'N/A': 0 };
-  for (const r of rows) { planCounts[r.planBucket]++; if (r.prValue) planValues[r.planBucket] += r.prValue; }
-  const kpi4 = { planCounts, planValues };
+  const pc={Planned:0,Unplanned:0,'N/A':0},pv={Planned:0,Unplanned:0,'N/A':0};
+  for(const r of rows){ pc[r.planBucket]++; if(r.prValue)pv[r.planBucket]+=r.prValue; }
+  const kpi4={planCounts:pc,planValues:pv};
 
   // KPI 5
-  const buyerMap = {};
-  for (const r of rows) {
-    const b = r.buyer || 'Unknown';
-    if (!buyerMap[b]) buyerMap[b] = { count: 0, value: 0 };
-    buyerMap[b].count++;
-    if (r.prValue) buyerMap[b].value += r.prValue;
-  }
-  const kpi5 = Object.entries(buyerMap).map(([buyer, d]) => ({ buyer, ...d })).sort((a, b) => b.count - a.count);
+  const bm={};
+  for(const r of rows){ const b=r.buyer||'Unknown'; if(!bm[b])bm[b]={count:0,value:0}; bm[b].count++; if(r.prValue)bm[b].value+=r.prValue; }
+  const kpi5=Object.entries(bm).map(([buyer,d])=>({buyer,...d})).sort((a,b)=>b.count-a.count);
 
   // Pipeline
-  const pipelineMap = {};
-  for (const r of rows) {
-    const s = r.stage || 'Unknown';
-    if (!pipelineMap[s]) pipelineMap[s] = { count: 0, value: 0 };
-    pipelineMap[s].count++;
-    if (r.prValue) pipelineMap[s].value += r.prValue;
-  }
-  const STAGE_ORDER = ['New PR','Assigned','Solicitation Issued','Offers Received','Evaluation','Award Recommendation','PO Issued','Closed','Cancelled'];
-  const pipeline = Object.entries(pipelineMap).map(([stage, d]) => ({ stage, ...d }))
-    .sort((a, b) => {
-      const ia = STAGE_ORDER.findIndex(s => a.stage.toLowerCase().includes(s.toLowerCase()));
-      const ib = STAGE_ORDER.findIndex(s => b.stage.toLowerCase().includes(s.toLowerCase()));
-      if (ia !== -1 && ib !== -1) return ia - ib;
-      if (ia !== -1) return -1; if (ib !== -1) return 1;
-      return b.count - a.count;
-    });
+  const pm={};
+  for(const r of rows){ const s=r.stage||'Unknown'; if(!pm[s])pm[s]={count:0,value:0}; pm[s].count++; if(r.prValue)pm[s].value+=r.prValue; }
+  const SO=['New PR','Assigned','Solicitation Issued','Offers Received','Evaluation','Award Recommendation','PO Issued','Closed','Cancelled'];
+  const pipeline=Object.entries(pm).map(([stage,d])=>({stage,...d}))
+    .sort((a,b)=>{ const ia=SO.findIndex(s=>a.stage.toLowerCase().includes(s.toLowerCase())); const ib=SO.findIndex(s=>b.stage.toLowerCase().includes(s.toLowerCase())); if(ia!==-1&&ib!==-1)return ia-ib; if(ia!==-1)return-1; if(ib!==-1)return 1; return b.count-a.count; });
 
-  return { kpi1, kpi2, kpi3, kpi4, kpi5, pipeline, avgCycle };
+  return{kpi1,kpi2,kpi3,kpi4,kpi5,pipeline,avgCycle};
 }
 
-// ════════════════════════════════════════════════════════════════════
-// KPI Cards
-// ════════════════════════════════════════════════════════════════════
-function renderCards(kpis, totalRows) {
-  const { kpi1, kpi2, kpi3, kpi4, avgCycle } = kpis;
-  const compPct = (kpi3.compCount + kpi3.dirCount)
-    ? Math.round(100 * kpi3.compCount / (kpi3.compCount + kpi3.dirCount)) : 0;
-  const planPct = (totalRows)
-    ? Math.round(100 * kpi4.planCounts.Planned / totalRows) : 0;
-
-  const cycleColor = avgCycle <= 30 ? 'text-green-600' : avgCycle <= 90 ? 'text-amber-500' : 'text-red-500';
-
-  const cards = [
-    { label: 'Total PRs',    value: fmt(totalRows),         sub: 'in selection',              color: 'bg-[#003366]', icon: '📋' },
-    { label: 'Avg Cycle',    value: avgCycle + 'd',         sub: 'PR → PO issuance',          color: avgCycle <= 30 ? 'bg-green-600' : avgCycle <= 90 ? 'bg-amber-500' : 'bg-red-500', icon: '⏱' },
-    { label: 'Net Savings',  value: fmtUSD(kpi2.net),       sub: 'vs estimated value',        color: kpi2.net >= 0 ? 'bg-green-600' : 'bg-red-500', icon: '💰' },
-    { label: 'Competitive',  value: compPct + '%',          sub: fmt(kpi3.compCount) + ' of ' + fmt(kpi3.compCount + kpi3.dirCount), color: 'bg-[#009FDA]', icon: '🏆' },
-    { label: 'Planned',      value: planPct + '%',          sub: fmt(kpi4.planCounts.Planned) + ' planned PRs', color: 'bg-indigo-600', icon: '📅' },
-    { label: 'Total Value',  value: fmtUSD(kpi3.compValue + kpi3.dirValue), sub: 'sum PRValue', color: 'bg-slate-700', icon: '💵' },
+// ── KPI Cards ──────────────────────────────────────────────────────
+function renderCards(K,total){
+  const {kpi2,kpi3,kpi4,avgCycle}=K;
+  const compPct=(kpi3.compCount+kpi3.dirCount)?Math.round(100*kpi3.compCount/(kpi3.compCount+kpi3.dirCount)):0;
+  const cycleCol=avgCycle<=30?'var(--green)':avgCycle<=90?'var(--amber)':'var(--red)';
+  const netCol=kpi2.net>=0?'var(--green)':'var(--red)';
+  const cards=[
+    {lbl:'Total PRs',     val:fmt(total),        sub:'in selection',         col:'var(--navy)'},
+    {lbl:'Avg Cycle Time',val:avgCycle+'d',       sub:'PR \u2192 PO issuance',     col:cycleCol},
+    {lbl:'Net Savings',   val:fmtUSD(kpi2.net),  sub:'vs estimated value',   col:netCol},
+    {lbl:'Competitive',   val:compPct+'%',        sub:fmt(kpi3.compCount)+' of '+fmt(kpi3.compCount+kpi3.dirCount)+' PRs', col:'var(--blue)'},
   ];
-
-  document.getElementById('kpi-cards').innerHTML = cards.map(c => \`
-    <div class="kpi-card \${c.color} text-white rounded-xl shadow p-4 flex flex-col gap-1">
-      <span class="text-xs opacity-70 font-medium uppercase tracking-wide">\${c.icon} \${c.label}</span>
-      <span class="text-2xl font-extrabold">\${c.value}</span>
-      <span class="text-xs opacity-60">\${c.sub}</span>
-    </div>
-  \`).join('');
+  document.getElementById('kpi-row').innerHTML=cards.map(c=>\`
+    <div class="kpi-card" style="border-left-color:\${c.col}">
+      <div class="kpi-lbl">\${c.lbl}</div>
+      <div class="kpi-val" style="color:\${c.col}">\${c.val}</div>
+      <div class="kpi-sub">\${c.sub}</div>
+    </div>\`).join('');
 }
 
-// ════════════════════════════════════════════════════════════════════
-// Chart helpers
-// ════════════════════════════════════════════════════════════════════
-function makeOrUpdate(id, config) {
-  if (chartRegistry[id]) { chartRegistry[id].destroy(); }
-  const ctx = document.getElementById(id).getContext('2d');
-  chartRegistry[id] = new Chart(ctx, config);
+// ── Buyer workload cards ───────────────────────────────────────────
+function renderBuyers(kpi5){
+  const maxC=kpi5[0]?.count||1;
+  document.getElementById('buyer-grid').innerHTML=kpi5.map(b=>\`
+    <div class="buyer-card" onclick="openBuyerDrill('\${b.buyer.replace(/'/g,"\\\\'")}')">
+      <div class="buyer-name">\${b.buyer}</div>
+      <div class="buyer-bar-bg"><div class="buyer-bar-fg" style="width:\${Math.round(100*b.count/maxC)}%"></div></div>
+      <div class="buyer-stats"><span>\${b.count} PRs</span><span>\${fmtUSD(b.value)}</span></div>
+    </div>\`).join('');
 }
 
-// ════════════════════════════════════════════════════════════════════
-// Render all charts
-// ════════════════════════════════════════════════════════════════════
-function renderCharts(kpis) {
-  const { kpi1, kpi2, kpi3, kpi4, kpi5, pipeline } = kpis;
+// ── Chart helpers ─────────────────────────────────────────────────
+function mou(id,cfg){
+  if(CR[id]){CR[id].destroy();}
+  CR[id]=new Chart(document.getElementById(id).getContext('2d'),cfg);
+}
 
-  // ── Chart 1: Cycle Time horizontal bar ───────────────────────────
-  makeOrUpdate('chart-cycle', {
-    type: 'bar',
-    data: {
-      labels: kpi1.map(d => d.method),
-      datasets: [{
-        label: 'Avg days',
-        data: kpi1.map(d => d.avg),
-        backgroundColor: kpi1.map(d => d.color),
-        borderRadius: 4,
-      }]
-    },
-    options: {
-      indexAxis: 'y',
-      responsive: true,
-      plugins: {
-        legend: { display: false },
-        tooltip: { callbacks: { label: ctx => \` \${ctx.parsed.x} days (n=\${kpi1[ctx.dataIndex].count})\` } },
-      },
-      scales: {
-        x: { grid: { color: gridColor() }, ticks: { color: textColor() }, title: { display: true, text: 'Days', color: textColor() } },
-        y: { grid: { display: false }, ticks: { color: textColor() } },
-      },
-      onClick: (_e, elements) => {
-        if (!elements.length) return;
-        const method = kpi1[elements[0].index].method;
-        const rows = filteredRows().filter(r => r.method === method && r.cycleTime !== null);
-        openModal(\`Cycle Time – \${method}\`, buildDrillTable(rows, ['id','title','buyer','prReceived','poDate','cycleTime']));
-      }
-    }
+// ── Render charts ─────────────────────────────────────────────────
+function renderCharts(K){
+  const{kpi1,kpi2,kpi3,kpi4,pipeline}=K;
+
+  // Chart 1: Cycle time horizontal bar
+  mou('chart-cycle',{type:'bar',data:{
+    labels:kpi1.map(d=>d.method),
+    datasets:[{label:'Avg days',data:kpi1.map(d=>d.avg),backgroundColor:kpi1.map(d=>d.color),borderRadius:4}]
+  },options:{indexAxis:'y',responsive:true,plugins:{legend:{display:false},
+    tooltip:{callbacks:{label:ctx=>\` \${ctx.parsed.x}d (n=\${kpi1[ctx.dataIndex].count})\`}}},
+    scales:{x:{grid:{color:gc()},ticks:{color:tc()},title:{display:true,text:'Days',color:tc()}},y:{grid:{display:false},ticks:{color:tc()}}},
+    onClick:(_e,el)=>{ if(!el.length)return; const m=kpi1[el[0].index].method;
+      openModal(\`Cycle Time \u2013 \${m}\`,drillTable(filteredRows().filter(r=>r.method===m&&r.cycleTime!==null),['id','title','buyer','prReceived','poDate','cycleTime'])); }
+  }});
+
+  // Chart 2: Monthly savings bar + average line
+  const labels=kpi2.monthly.map(m=>{
+    const[y,mo]=m.month.split('-'); return new Date(+y,+mo-1).toLocaleString('en',{month:'short',year:'2-digit'});
   });
+  const avgArr=kpi2.monthly.map(()=>kpi2.avgMonthly);
+  mou('chart-savings',{type:'bar',data:{
+    labels,
+    datasets:[
+      {type:'bar',label:'Monthly Savings (USD)',data:kpi2.monthly.map(m=>m.total),
+       backgroundColor:kpi2.monthly.map(m=>m.total>=0?'rgba(34,197,94,.7)':'rgba(239,68,68,.7)'),borderRadius:3,order:2},
+      {type:'line',label:'Monthly Average',data:avgArr,borderColor:'#f59e0b',borderWidth:2,borderDash:[5,4],
+       pointRadius:0,fill:false,order:1,tension:0}
+    ]
+  },options:{responsive:true,plugins:{legend:{labels:{color:tc()}}},
+    scales:{x:{grid:{color:gc()},ticks:{color:tc(),maxRotation:45}},
+            y:{grid:{color:gc()},ticks:{color:tc(),callback:v=>fmtUSD(v)}}},
+    onClick:(_e,el)=>{ if(!el.length)return; const item=kpi2.monthly[el[0].index];
+      openModal(\`Savings \u2013 \${item.month}\`,drillTable(filteredRows().filter(r=>{
+        const d=(r.poDate||r.prReceived||''); return d.startsWith(item.month)&&r.savings!==null;
+      }),['id','title','buyer','method','prValue','cumulativePO','savings'])); }
+  }});
 
-  // ── Chart 2: Savings bar (top 10) ────────────────────────────────
-  makeOrUpdate('chart-savings', {
-    type: 'bar',
-    data: {
-      labels: kpi2.top10.map(d => d.title),
-      datasets: [{
-        label: 'Savings (USD)',
-        data: kpi2.top10.map(d => d.savings),
-        backgroundColor: kpi2.top10.map(d => d.savings >= 0 ? '#4CAF50' : '#F44336'),
-        borderRadius: 4,
-      }]
-    },
-    options: {
-      indexAxis: 'y',
-      responsive: true,
-      plugins: {
-        legend: { display: false },
-        tooltip: { callbacks: { label: ctx => ' ' + fmtUSD(ctx.parsed.x) } },
-      },
-      scales: {
-        x: { grid: { color: gridColor() }, ticks: { color: textColor(), callback: v => fmtUSD(v) } },
-        y: { grid: { display: false }, ticks: { color: textColor(), font: { size: 10 } } },
-      },
-      onClick: (_e, elements) => {
-        if (!elements.length) return;
-        const item = kpi2.top10[elements[0].index];
-        const rows = filteredRows().filter(r => r.id === item.id);
-        openModal(\`Savings detail – ID \${item.id}\`, buildDrillTable(rows, ['id','title','buyer','method','prValue','cumulativePO','savings']));
-      }
-    }
-  });
+  // Chart 3: Competitive vs Direct doughnut
+  mou('chart-comp',{type:'doughnut',data:{
+    labels:['Competitive','Direct/Other'],
+    datasets:[{data:[kpi3.compCount,kpi3.dirCount],backgroundColor:['#009FDA','#f59e0b'],hoverOffset:6}]
+  },options:{responsive:true,plugins:{legend:{position:'bottom',labels:{color:tc()}},
+    tooltip:{callbacks:{label:ctx=>{
+      const tot=kpi3.compCount+kpi3.dirCount;
+      const pct=tot?Math.round(100*ctx.parsed/tot):0;
+      const val=ctx.dataIndex===0?kpi3.compValue:kpi3.dirValue;
+      return \` \${ctx.parsed} PRs (\${pct}%) \u2013 \${fmtUSD(val)}\`;
+    }}}},
+    onClick:(_e,el)=>{ if(!el.length)return; const ic=el[0].index===0;
+      openModal(ic?'Competitive PRs':'Direct / Other PRs',drillTable(filteredRows().filter(r=>r.isCompetitive===ic),['id','title','buyer','method','prValue','stage'])); }
+  }});
 
-  // ── Chart 3: Competitive vs Direct – doughnut ────────────────────
-  makeOrUpdate('chart-comp', {
-    type: 'doughnut',
-    data: {
-      labels: ['Competitive', 'Direct/Other'],
-      datasets: [{
-        data: [kpi3.compCount, kpi3.dirCount],
-        backgroundColor: ['#009FDA', '#FF9800'],
-        hoverOffset: 6,
-      }]
-    },
-    options: {
-      responsive: true,
-      plugins: {
-        legend: { position: 'bottom', labels: { color: textColor() } },
-        tooltip: {
-          callbacks: {
-            label: ctx => {
-              const total = kpi3.compCount + kpi3.dirCount;
-              const pct = total ? Math.round(100 * ctx.parsed / total) : 0;
-              const val = ctx.dataIndex === 0 ? kpi3.compValue : kpi3.dirValue;
-              return \` \${ctx.parsed} PRs (\${pct}%) – \${fmtUSD(val)}\`;
-            }
-          }
-        }
-      },
-      onClick: (_e, elements) => {
-        if (!elements.length) return;
-        const isComp = elements[0].index === 0;
-        const rows = filteredRows().filter(r => r.isCompetitive === isComp);
-        openModal(isComp ? 'Competitive PRs' : 'Direct / Other PRs', buildDrillTable(rows, ['id','title','buyer','method','prValue','stage']));
-      }
-    }
-  });
+  // Chart 4: Plan compliance pie
+  const pLabels=['Planned','Unplanned','N/A'];
+  mou('chart-plan',{type:'pie',data:{
+    labels:pLabels,
+    datasets:[{data:pLabels.map(l=>kpi4.planCounts[l]),backgroundColor:['#22c55e','#ef4444','#94a3b8'],hoverOffset:6}]
+  },options:{responsive:true,plugins:{legend:{position:'bottom',labels:{color:tc()}},
+    tooltip:{callbacks:{label:ctx=>{
+      const tot=pLabels.reduce((a,l)=>a+kpi4.planCounts[l],0);
+      const pct=tot?Math.round(100*ctx.parsed/tot):0;
+      return \` \${ctx.parsed} (\${pct}%) \u2013 \${fmtUSD(kpi4.planValues[pLabels[ctx.dataIndex]])}\`;
+    }}}},
+    onClick:(_e,el)=>{ if(!el.length)return; const b=pLabels[el[0].index];
+      openModal(\`Plan \u2013 \${b}\`,drillTable(filteredRows().filter(r=>r.planBucket===b),['id','title','buyer','method','prValue','stage'])); }
+  }});
 
-  // ── Chart 4: Plan Compliance – pie ───────────────────────────────
-  const planLabels = ['Planned', 'Unplanned', 'N/A'];
-  makeOrUpdate('chart-plan', {
-    type: 'pie',
-    data: {
-      labels: planLabels,
-      datasets: [{
-        data: planLabels.map(l => kpi4.planCounts[l]),
-        backgroundColor: ['#4CAF50', '#F44336', '#90a4ae'],
-        hoverOffset: 6,
-      }]
-    },
-    options: {
-      responsive: true,
-      plugins: {
-        legend: { position: 'bottom', labels: { color: textColor() } },
-        tooltip: {
-          callbacks: {
-            label: ctx => {
-              const total = planLabels.reduce((a, l) => a + kpi4.planCounts[l], 0);
-              const pct = total ? Math.round(100 * ctx.parsed / total) : 0;
-              return \` \${ctx.parsed} (\${pct}%) – \${fmtUSD(kpi4.planValues[planLabels[ctx.dataIndex]])}\`;
-            }
-          }
-        }
-      },
-      onClick: (_e, elements) => {
-        if (!elements.length) return;
-        const bucket = planLabels[elements[0].index];
-        const rows = filteredRows().filter(r => r.planBucket === bucket);
-        openModal(\`Plan Compliance – \${bucket}\`, buildDrillTable(rows, ['id','title','buyer','method','prValue','stage']));
-      }
-    }
-  });
-
-  // ── Chart 5: Buyer Workload – grouped bar ────────────────────────
-  const TOP_N = Math.min(12, kpi5.length);
-  const top5 = kpi5.slice(0, TOP_N);
-  makeOrUpdate('chart-buyer', {
-    type: 'bar',
-    data: {
-      labels: top5.map(d => d.buyer),
-      datasets: [
-        { label: '# PRs', data: top5.map(d => d.count), backgroundColor: '#009FDA', borderRadius: 4, yAxisID: 'y' },
-        { label: 'Value (USD)', data: top5.map(d => d.value), backgroundColor: '#003366', borderRadius: 4, yAxisID: 'y2' },
-      ]
-    },
-    options: {
-      responsive: true,
-      plugins: { legend: { labels: { color: textColor() } } },
-      scales: {
-        x: { grid: { display: false }, ticks: { color: textColor() } },
-        y:  { position: 'left',  grid: { color: gridColor() }, ticks: { color: textColor() }, title: { display: true, text: 'Count', color: textColor() } },
-        y2: { position: 'right', grid: { display: false }, ticks: { color: textColor(), callback: v => fmtUSD(v) }, title: { display: true, text: 'USD', color: textColor() } },
-      },
-      onClick: (_e, elements) => {
-        if (!elements.length) return;
-        const buyer = top5[elements[0].index].buyer;
-        const rows = filteredRows().filter(r => r.buyer === buyer);
-        openModal(\`Workload – \${buyer}\`, buildDrillTable(rows, ['id','title','method','prValue','stage','prReceived','poDate','cycleTime']));
-      }
-    }
-  });
-
-  // ── Chart 6: Pipeline stages ─────────────────────────────────────
-  makeOrUpdate('chart-pipeline', {
-    type: 'bar',
-    data: {
-      labels: pipeline.map(d => d.stage),
-      datasets: [
-        { label: '# Items', data: pipeline.map(d => d.count), backgroundColor: '#009FDA', borderRadius: 4, yAxisID: 'y' },
-        { label: 'Value (USD)', data: pipeline.map(d => d.value), backgroundColor: '#FF9800', borderRadius: 4, yAxisID: 'y2' },
-      ]
-    },
-    options: {
-      responsive: true,
-      plugins: { legend: { labels: { color: textColor() } } },
-      scales: {
-        x: { grid: { display: false }, ticks: { color: textColor() } },
-        y:  { position: 'left',  grid: { color: gridColor() }, ticks: { color: textColor() }, title: { display: true, text: 'Count', color: textColor() } },
-        y2: { position: 'right', grid: { display: false }, ticks: { color: textColor(), callback: v => fmtUSD(v) }, title: { display: true, text: 'USD', color: textColor() } },
-      },
-      onClick: (_e, elements) => {
-        if (!elements.length) return;
-        const stage = pipeline[elements[0].index].stage;
-        const rows = filteredRows().filter(r => r.stage === stage);
-        openModal(\`Pipeline – \${stage}\`, buildDrillTable(rows, ['id','title','buyer','method','prValue','prReceived','poDate']));
-      }
-    }
-  });
+  // Chart 5: Pipeline horizontal bar
+  mou('chart-pipeline',{type:'bar',data:{
+    labels:pipeline.map(d=>d.stage),
+    datasets:[{label:'# Items',data:pipeline.map(d=>d.count),backgroundColor:'#009FDA',borderRadius:4}]
+  },options:{indexAxis:'y',responsive:true,
+    plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>\` \${ctx.parsed.x} items  |  \${fmtUSD(pipeline[ctx.dataIndex].value)}\`}}},
+    scales:{x:{grid:{color:gc()},ticks:{color:tc()}},y:{grid:{display:false},ticks:{color:tc()}}},
+    onClick:(_e,el)=>{ if(!el.length)return; const s=pipeline[el[0].index].stage;
+      openModal(\`Pipeline \u2013 \${s}\`,drillTable(filteredRows().filter(r=>r.stage===s),['id','title','buyer','method','prValue','prReceived','poDate'])); }
+  }});
 }
 
-// ════════════════════════════════════════════════════════════════════
-// Drill-down modal
-// ════════════════════════════════════════════════════════════════════
-const COL_LABEL = {
-  id: 'ID', title: 'Description', buyer: 'Buyer', method: 'Method',
-  prValue: 'PR Value', cumulativePO: 'Cumul. PO', savings: 'Savings',
-  stage: 'Stage', prReceived: 'PR Received', poDate: 'PO Date',
-  cycleTime: 'Cycle (d)', isCompetitive: 'Competitive?', planBucket: 'Plan',
-};
-function colFmt(key, val) {
-  if (val === null || val === undefined || val === '') return '–';
-  if (['prValue','cumulativePO','savings'].includes(key)) return fmtUSD(val);
-  if (key === 'isCompetitive') return val ? 'Yes' : 'No';
-  return String(val);
+// ── Drill table ────────────────────────────────────────────────────
+const CL={id:'ID',title:'Description',buyer:'Buyer',method:'Method',prValue:'PR Value',
+  cumulativePO:'Cumul. PO',savings:'Savings',stage:'Stage',prReceived:'PR Received',
+  poDate:'PO Date',cycleTime:'Cycle (d)',isCompetitive:'Competitive?',planBucket:'Plan'};
+function cf(k,v){
+  if(v===null||v===undefined||v==='')return'\u2013';
+  if(['prValue','cumulativePO','savings'].includes(k))return fmtUSD(v);
+  if(k==='isCompetitive')return v?'Yes':'No';
+  return String(v);
 }
-function buildDrillTable(rows, cols) {
-  if (!rows.length) return '<p class="text-sm text-slate-500">No records found.</p>';
-  const head = cols.map(c => \`<th>\${COL_LABEL[c] || c}</th>\`).join('');
-  const body = rows.map(r =>
-    '<tr>' + cols.map(c => \`<td>\${colFmt(c, r[c])}</td>\`).join('') + '</tr>'
-  ).join('');
-  return \`<table class="drill"><thead><tr>\${head}</tr></thead><tbody>\${body}</tbody></table>\`;
+function drillTable(rows,cols){
+  if(!rows.length)return'<p style="font-size:13px;color:var(--muted)">No records found.</p>';
+  return\`<table class="drill"><thead><tr>\${cols.map(c=>\`<th>\${CL[c]||c}</th>\`).join('')}</tr></thead><tbody>\${
+    rows.map(r=>'<tr>'+cols.map(c=>\`<td>\${cf(c,r[c])}</td>\`).join('')+'</tr>').join('')
+  }</tbody></table>\`;
 }
-function openModal(title, html) {
-  document.getElementById('modal-title').textContent = title;
-  document.getElementById('modal-content').innerHTML = html;
-  document.getElementById('modal-overlay').classList.add('open');
+function openModal(title,html){
+  document.getElementById('modal-title').textContent=title;
+  document.getElementById('modal-content').innerHTML=html;
+  document.getElementById('modal-ov').classList.add('open');
 }
-function closeModal() {
-  document.getElementById('modal-overlay').classList.remove('open');
-}
-document.getElementById('modal-overlay').addEventListener('click', e => {
-  if (e.target === document.getElementById('modal-overlay')) closeModal();
-});
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+function closeModal(){ document.getElementById('modal-ov').classList.remove('open'); }
+document.getElementById('modal-ov').addEventListener('click',e=>{ if(e.target===document.getElementById('modal-ov'))closeModal(); });
+document.addEventListener('keydown',e=>{ if(e.key==='Escape')closeModal(); });
 
-// ════════════════════════════════════════════════════════════════════
-// Export PNG
-// ════════════════════════════════════════════════════════════════════
-function exportChart(id) {
-  const chart = chartRegistry[id];
-  if (!chart) return;
-  const a = document.createElement('a');
-  a.href = chart.toBase64Image('image/png', 1);
-  a.download = id + '.png';
-  a.click();
+// ── Export PNG ─────────────────────────────────────────────────────
+function exportChart(id){
+  const c=CR[id]; if(!c)return;
+  const a=document.createElement('a');
+  a.href=c.toBase64Image('image/png',1); a.download=id+'.png'; a.click();
 }
 
-// ════════════════════════════════════════════════════════════════════
-// Dark / Light mode toggle
-// ════════════════════════════════════════════════════════════════════
-document.getElementById('theme-toggle').addEventListener('click', () => {
-  const html = document.documentElement;
-  html.classList.toggle('dark');
-  document.getElementById('theme-toggle').textContent = html.classList.contains('dark') ? 'Light' : 'Dark';
-  // Re-render charts so grid/text colors update
-  const rows = filteredRows();
-  const kpis = recomputeKPIs(rows);
-  renderCharts(kpis);
+// ── Theme toggle ───────────────────────────────────────────────────
+document.getElementById('theme-chk').addEventListener('change',function(){
+  document.documentElement.setAttribute('data-theme',this.checked?'dark':'light');
+  const rows=filteredRows(); const K=recompute(rows);
+  renderCharts(K);
 });
 
-// ════════════════════════════════════════════════════════════════════
-// Filters
-// ════════════════════════════════════════════════════════════════════
-function populateFilters() {
-  const ysel = document.getElementById('filter-year');
-  DASHBOARD_DATA.years.forEach(y => {
-    const o = document.createElement('option'); o.value = y; o.textContent = y; ysel.appendChild(o);
-  });
-  const bsel = document.getElementById('filter-buyer');
-  DASHBOARD_DATA.buyers.forEach(b => {
-    const o = document.createElement('option'); o.value = b; o.textContent = b; bsel.appendChild(o);
-  });
-  const ssel = document.getElementById('filter-stage');
-  DASHBOARD_DATA.stages.forEach(s => {
-    const o = document.createElement('option'); o.value = s; o.textContent = s; ssel.appendChild(o);
+// ── Slicer pills ───────────────────────────────────────────────────
+function makePills(containerId,items,filterKey){
+  const wrap=document.getElementById(containerId);
+  // "All" pill
+  const all=document.createElement('button');
+  all.className='pill on'; all.textContent='All';
+  all.onclick=()=>{ AF[filterKey]=''; wrap.querySelectorAll('.pill').forEach(p=>p.classList.remove('on')); all.classList.add('on'); refresh(); };
+  wrap.appendChild(all);
+  items.forEach(item=>{
+    const p=document.createElement('button');
+    p.className='pill'; p.textContent=item;
+    p.onclick=()=>{
+      AF[filterKey]=item;
+      wrap.querySelectorAll('.pill').forEach(p2=>p2.classList.remove('on'));
+      p.classList.add('on');
+      refresh();
+    };
+    wrap.appendChild(p);
   });
 }
 
-function applyFilters() {
-  activeFilters.year  = document.getElementById('filter-year').value;
-  activeFilters.buyer = document.getElementById('filter-buyer').value;
-  activeFilters.stage = document.getElementById('filter-stage').value;
-  refresh();
+// ── Buyer drill (from workload card) ──────────────────────────────
+function openBuyerDrill(buyer){
+  openModal(\`Workload \u2013 \${buyer}\`,drillTable(filteredRows().filter(r=>r.buyer===buyer),['id','title','method','prValue','stage','prReceived','poDate','cycleTime']));
 }
 
-['filter-year','filter-buyer','filter-stage'].forEach(id =>
-  document.getElementById(id).addEventListener('change', applyFilters)
-);
-document.getElementById('reset-filters').addEventListener('click', () => {
-  ['filter-year','filter-buyer','filter-stage'].forEach(id => { document.getElementById(id).value = ''; });
-  activeFilters = { year: '', buyer: '', stage: '' };
-  refresh();
-});
-
-// ════════════════════════════════════════════════════════════════════
-// Main refresh
-// ════════════════════════════════════════════════════════════════════
-function refresh() {
-  const rows = filteredRows();
-  const kpis = recomputeKPIs(rows);
-  renderCards(kpis, rows.length);
-  renderCharts(kpis);
+// ── Main refresh ───────────────────────────────────────────────────
+function refresh(){
+  const rows=filteredRows();
+  const K=recompute(rows);
+  renderCards(K,rows.length);
+  renderCharts(K);
+  renderBuyers(K.kpi5);
 }
 
-// ════════════════════════════════════════════════════════════════════
-// Init
-// ════════════════════════════════════════════════════════════════════
-document.getElementById('last-updated').textContent = DASHBOARD_DATA.lastUpdated;
-populateFilters();
+// ── Init ───────────────────────────────────────────────────────────
+document.getElementById('last-updated').textContent=DASHBOARD_DATA.lastUpdated;
+makePills('pills-year',  DASHBOARD_DATA.years,    'year');
+makePills('pills-buyer', DASHBOARD_DATA.buyers,   'buyer');
+makePills('pills-project',DASHBOARD_DATA.projects,'project');
 refresh();
-</script>
+<\/script>
 </body>
 </html>`;
 }
@@ -1047,7 +921,7 @@ if (!rows.length) {
 
 const data = computeKPIs(rows);
 console.log(`  KPIs computed. Last updated: ${data.lastUpdated}`);
-console.log(`  Rows: ${data.rows.length} | Buyers: ${data.buyers.length} | Stages: ${data.stages.length}`);
+console.log(`  Rows: ${data.rows.length} | Buyers: ${data.buyers.length} | Stages: ${data.stages.length} | Projects: ${data.projects.length}`);
 
 const html = generateHTML(data);
 const outDir = path.dirname(OUTPUT_PATH);
