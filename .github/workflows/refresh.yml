@@ -41,9 +41,16 @@ jobs:
         with:
           node-version: '20'
 
-      # ── 3. Build dashboard ─────────────────────────────────────────
+      # ── 3. Build dashboard (only if CSV is present) ────────────────
       - name: Build dashboard
-        run: node build.js --ci
+        run: |
+          CSV=data/Procurement_Tracking_FAO_Ukraine.csv
+          if [ -f "$CSV" ]; then
+            echo "CSV found — rebuilding dashboard."
+            node build.js --ci
+          else
+            echo "CSV not found — skipping rebuild, deploying existing public/index.html."
+          fi
 
       # ── 4. Commit updated HTML back to main ────────────────────────
       - name: Commit updated dashboard
