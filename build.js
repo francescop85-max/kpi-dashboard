@@ -210,6 +210,7 @@ function loadData(csvPath) {
     const COMPETITIVE_METHODS = ['ITB', 'RFQ', 'RFP', 'BAFO', 'EOI'];
     const methodUpper = (method || '').toUpperCase();
     const isCompetitive = COMPETITIVE_METHODS.some(m => methodUpper.includes(m));
+    const isDirect = !isCompetitive && methodUpper.includes('DIRECT');
 
     // Plan compliance bucket
     let planBucket;
@@ -234,6 +235,7 @@ function loadData(csvPath) {
       planRaw,
       planBucket,
       isCompetitive,
+      isDirect,
       prReceived,
       poDate,
       solIssued,
@@ -312,18 +314,21 @@ function computeKPIs(rows) {
   kpi2.monthly = monthlySavings;
   kpi2.avgMonthly = avgMonthlySavings;
 
-  // ── KPI 3: Competitive vs Direct ──────────────────────────────────────────
-  let compCount = 0, compValue = 0, dirCount = 0, dirValue = 0;
+  // ── KPI 3: Competitive vs Direct Procurement vs Other ─────────────────────
+  let compCount = 0, compValue = 0, dirCount = 0, dirValue = 0, otherCount = 0, otherValue = 0;
   for (const r of rows) {
     if (r.isCompetitive) {
       compCount++;
       if (r.prValue) compValue += r.prValue;
-    } else {
+    } else if (r.isDirect) {
       dirCount++;
       if (r.prValue) dirValue += r.prValue;
+    } else {
+      otherCount++;
+      if (r.prValue) otherValue += r.prValue;
     }
   }
-  const kpi3 = { compCount, compValue, dirCount, dirValue };
+  const kpi3 = { compCount, compValue, dirCount, dirValue, otherCount, otherValue };
 
   // ── KPI 4: Plan Compliance ────────────────────────────────────────────────
   const planCounts = { Planned: 0, Unplanned: 0, 'N/A': 0 };
@@ -345,6 +350,24 @@ function computeKPIs(rows) {
   const kpi5 = Object.entries(buyerMap)
     .map(([buyer, d]) => ({ buyer, ...d }))
     .sort((a, b) => b.count - a.count);
+
+  // ── KPI 6: PR Assigned → Solicitation Issued ─────────────────────────────
+  const assignToSolByMethod = {};
+  for (const r of rows) {
+    const days = dateDiffDays(r.dateAssigned, r.solIssued);
+    if (days === null || days < 0) continue;
+    const m = r.method || 'Unknown';
+    if (!assignToSolByMethod[m]) assignToSolByMethod[m] = [];
+    assignToSolByMethod[m].push(days);
+  }
+  const kpi6 = Object.entries(assignToSolByMethod).map(([method, times]) => {
+    const avg = Math.round(times.reduce((a, b) => a + b, 0) / times.length);
+    return { method, avg, count: times.length };
+  }).sort((a, b) => b.count - a.count);
+  const allA2S = Object.values(assignToSolByMethod).flat();
+  const avgAssignToSol = allA2S.length
+    ? Math.round(allA2S.reduce((a, b) => a + b, 0) / allA2S.length)
+    : 0;
 
   // ── Pipeline: count per stage ─────────────────────────────────────────────
   const pipelineMap = {};
@@ -410,7 +433,7 @@ function computeKPIs(rows) {
     dateClosed:   fmtDate(r.dateClosed),
   }));
 
-  return { kpi1, kpi2, kpi3, kpi4, kpi5, pipeline, years, buyers, stages, projects, methods, lastUpdated, rows: serialRows, avgCycle };
+  return { kpi1, kpi2, kpi3, kpi4, kpi5, kpi6, pipeline, years, buyers, stages, methods, projects, lastUpdated, rows: serialRows, avgCycle, avgAssignToSol };
 }
 
 
@@ -504,7 +527,7 @@ function generateHTML(data) {
     .kpi-narrative { font-size: 11px; color: var(--muted); margin-top: 4px; line-height: 1.5; font-style: italic; }
 
     /* ── KPI strip ── */
-    .kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px;}
+    .kpi-row{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:18px;}
     .kpi-card{background:var(--card);border-radius:12px;padding:16px 20px;box-shadow:var(--shadow);border-left:4px solid var(--blue);display:flex;flex-direction:column;gap:3px;}
     .kpi-lbl{font-size:10px;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);font-weight:700;}
     .kpi-val{font-size:28px;font-weight:800;line-height:1.1;}
@@ -644,12 +667,12 @@ function generateHTML(data) {
     </div>
   </div>
 
-  <!-- Pipeline (full width) -->
+  <!-- KPI 6: Prep Time -->
   <div class="grid2">
     <div class="chart-card full">
-      <button class="export-btn" onclick="exportChart('chart-pipeline')">PNG</button>
-      <div class="chart-title">Pipeline – Items per Procurement Stage</div>
-      <canvas id="chart-pipeline"></canvas>
+      <button class="export-btn" onclick="exportChart('chart-a2s')">PNG</button>
+      <div class="chart-title">KPI 6 – Avg Prep Time: PR Assigned → Solicitation Issued (days)</div>
+      <canvas id="chart-a2s"></canvas>
     </div>
   </div>
 
@@ -727,9 +750,13 @@ function recompute(rows){
   const kpi2={sumPos,sumNeg,net:sumPos+sumNeg,monthly,avgMonthly};
 
   // KPI 3
-  let cc=0,cv=0,dc=0,dv=0;
-  for(const r of rows){ if(r.isCompetitive){cc++;if(r.prValue)cv+=r.prValue;}else{dc++;if(r.prValue)dv+=r.prValue;} }
-  const kpi3={compCount:cc,compValue:cv,dirCount:dc,dirValue:dv};
+  let cc=0,cv=0,dc=0,dv=0,oc=0,ov=0;
+  for(const r of rows){
+    if(r.isCompetitive){cc++;if(r.prValue)cv+=r.prValue;}
+    else if(r.isDirect){dc++;if(r.prValue)dv+=r.prValue;}
+    else{oc++;if(r.prValue)ov+=r.prValue;}
+  }
+  const kpi3={compCount:cc,compValue:cv,dirCount:dc,dirValue:dv,otherCount:oc,otherValue:ov};
 
   // KPI 4
   const pc={Planned:0,Unplanned:0,'N/A':0},pv={Planned:0,Unplanned:0,'N/A':0};
@@ -748,47 +775,51 @@ function recompute(rows){
   const pipeline=Object.entries(pm).map(([stage,d])=>({stage,...d}))
     .sort((a,b)=>{ const ia=SO.findIndex(s=>a.stage.toLowerCase().includes(s.toLowerCase())); const ib=SO.findIndex(s=>b.stage.toLowerCase().includes(s.toLowerCase())); if(ia!==-1&&ib!==-1)return ia-ib; if(ia!==-1)return-1; if(ib!==-1)return 1; return b.count-a.count; });
 
-  return{kpi1,kpi2,kpi3,kpi4,kpi5,pipeline,avgCycle};
+  // KPI 6: Assigned → Sol Issued
+  const a2sm={};
+  for(const r of rows){
+    if(!r.dateAssigned||!r.solIssued) continue;
+    const days=Math.round((new Date(r.solIssued)-new Date(r.dateAssigned))/86400000);
+    if(days<0) continue;
+    const m=r.method||'Unknown'; if(!a2sm[m]) a2sm[m]=[]; a2sm[m].push(days);
+  }
+  const kpi6=Object.entries(a2sm).map(([method,t])=>({method,avg:Math.round(t.reduce((a,b)=>a+b,0)/t.length),count:t.length})).sort((a,b)=>b.count-a.count);
+  const avgA2S=Object.values(a2sm).flat().reduce((s,v,_,arr)=>s+v/arr.length,0)|0;
+
+  return{kpi1,kpi2,kpi3,kpi4,kpi5,pipeline,avgCycle,kpi6,avgAssignToSol:avgA2S};
 }
 
 // ── KPI Cards ──────────────────────────────────────────────────────
 function renderCards(K, total) {
-  const { kpi1, kpi2, kpi3, kpi4, avgCycle } = K;
-  const compPct = (kpi3.compCount + kpi3.dirCount)
-    ? Math.round(100 * kpi3.compCount / (kpi3.compCount + kpi3.dirCount)) : 0;
+  const { kpi1, kpi2, kpi3, kpi4, avgCycle, kpi6, avgAssignToSol } = K;
+  const compTotal = kpi3.compCount + kpi3.dirCount + kpi3.otherCount;
+  const compPct = compTotal ? Math.round(100 * kpi3.compCount / compTotal) : 0;
+  const dirPct  = compTotal ? Math.round(100 * kpi3.dirCount  / compTotal) : 0;
 
-  // Narratives
-  const target = 60;
-  const cycDiff = avgCycle - target;
-  const fastestM = [...kpi1].sort((a,b) => a.avg - b.avg)[0];
+  const target = 60; const cycDiff = avgCycle - target;
+  const fastestM = [...kpi1].sort((a,b)=>a.avg-b.avg)[0];
   const compTarget = 70;
 
   const narr = [
-    // Total PRs
-    (() => {
-      const closed = filteredRows().filter(r => /closed|po issued/i.test(r.stage||'')).length;
-      return \`\${total - closed} active, \${closed} closed or completed out of \${total} total.\`;
-    })(),
-    // Avg Cycle
-    cycDiff > 0
-      ? \`\${cycDiff} days above the \${target}-day benchmark.\${fastestM ? ' Fastest: '+fastestM.method+' ('+fastestM.avg+'d).' : ''}\`
-      : \`\${Math.abs(cycDiff)} days below the \${target}-day benchmark \u2014 within target.\${fastestM ? ' Fastest: '+fastestM.method+' ('+fastestM.avg+'d).' : ''}\`,
-    // Net Savings
+    (() => { const closed=filteredRows().filter(r=>/closed|po issued/i.test(r.stage||'')).length; return \`\${total-closed} active, \${closed} closed or completed.\`; })(),
+    cycDiff>0 ? \`\${cycDiff}d above the \${target}-day benchmark.\${fastestM?' Fastest: '+fastestM.method+' ('+fastestM.avg+'d).':''}\`
+              : \`Within target — \${Math.abs(cycDiff)}d below the \${target}-day benchmark.\${fastestM?' Fastest: '+fastestM.method+' ('+fastestM.avg+'d).':''}\`,
     \`\${fmtUSD(kpi2.sumPos)} positive, \${fmtUSD(Math.abs(kpi2.sumNeg))} negative. Avg monthly: \${fmtUSD(kpi2.avgMonthly)}.\`,
-    // Competitive
-    compPct >= compTarget
-      ? \`\${compPct}% competitive \u2014 above the \${compTarget}% target. \${kpi3.compCount} competitive vs \${kpi3.dirCount} direct.\`
-      : \`\${compPct}% competitive \u2014 below the \${compTarget}% target. \${kpi3.dirCount} direct procurements.\`,
+    compPct>=compTarget ? \`\${compPct}% competitive (target \${compTarget}%). Direct procurement: \${dirPct}% (\${kpi3.dirCount} PRs, \${fmtUSD(kpi3.dirValue)}).\`
+                        : \`\${compPct}% competitive — below \${compTarget}% target. Direct: \${dirPct}% (\${kpi3.dirCount} PRs). \${kpi3.otherCount} unclassified.\`,
+    avgAssignToSol > 0 ? \`Avg \${avgAssignToSol} days from PR assignment to solicitation launch.\${kpi6[0]?' Slowest: '+kpi6.slice(-1)[0].method+' ('+kpi6.slice(-1)[0].avg+'d).':''}\`
+                       : 'No data available for this period.',
   ];
 
-  const cols = ['var(--navy)', 'var(--blue)', 'var(--blue)', 'var(--navy)'];
+  const cols = ['var(--navy)','var(--blue)','var(--blue)','var(--navy)','var(--navy)'];
   const cards = [
-    { lbl: 'Total PRs',      val: fmt(total),        sub: 'in selection' },
-    { lbl: 'Avg Cycle Time', val: avgCycle + 'd',     sub: 'PR \u2192 PO issuance' },
-    { lbl: 'Net Savings',    val: fmtUSD(kpi2.net),  sub: 'vs estimated value' },
-    { lbl: 'Competitive',    val: compPct + '%',      sub: fmt(kpi3.compCount) + ' of ' + fmt(kpi3.compCount + kpi3.dirCount) + ' PRs' },
+    { lbl:'Total PRs',       val:fmt(total),           sub:'in selection' },
+    { lbl:'Avg Cycle Time',  val:avgCycle+'d',          sub:'PR → PO issuance' },
+    { lbl:'Net Savings',     val:fmtUSD(kpi2.net),     sub:'vs estimated value' },
+    { lbl:'Competitive',     val:compPct+'%',           sub:fmt(kpi3.compCount)+' of '+fmt(compTotal)+' PRs' },
+    { lbl:'Avg Prep Time',   val:avgAssignToSol+'d',    sub:'PR assigned → solicitation' },
   ];
-  document.getElementById('kpi-row').innerHTML = cards.map((c, i) => \`
+  document.getElementById('kpi-row').innerHTML = cards.map((c,i) => \`
     <div class="kpi-card" style="border-left-color:\${cols[i]}">
       <div class="kpi-lbl">\${c.lbl}</div>
       <div class="kpi-val" style="color:\${cols[i]}">\${c.val}</div>
@@ -816,7 +847,7 @@ function mou(id,cfg){
 
 // ── Render charts ─────────────────────────────────────────────────
 function renderCharts(K){
-  const{kpi1,kpi2,kpi3,kpi4,pipeline}=K;
+  const{kpi1,kpi2,kpi3,kpi4,kpi6,pipeline}=K;
 
   // Chart 1: Cycle time horizontal bar (blue palette, single color)
   mou('chart-cycle',{type:'bar',data:{
@@ -851,19 +882,24 @@ function renderCharts(K){
       }),['id','title','buyer','method','prValue','cumulativePO','savings'])); }
   }});
 
-  // Chart 3: Competitive vs Direct doughnut (blue palette)
+  // Chart 3: Competitive vs Direct vs Other — 3-slice doughnut
   mou('chart-comp',{type:'doughnut',data:{
-    labels:['Competitive','Direct/Other'],
-    datasets:[{data:[kpi3.compCount,kpi3.dirCount],backgroundColor:['#003366','#4da6d9'],hoverOffset:6}]
+    labels:['Competitive','Direct Procurement','Other'],
+    datasets:[{data:[kpi3.compCount,kpi3.dirCount,kpi3.otherCount],
+      backgroundColor:['#003366','#009FDA','#9ecae1'],hoverOffset:6}]
   },options:{responsive:true,plugins:{legend:{position:'bottom',labels:{color:tc()}},
     tooltip:{callbacks:{label:ctx=>{
-      const tot=kpi3.compCount+kpi3.dirCount;
+      const vals=[kpi3.compValue,kpi3.dirValue,kpi3.otherValue];
+      const tot=kpi3.compCount+kpi3.dirCount+kpi3.otherCount;
       const pct=tot?Math.round(100*ctx.parsed/tot):0;
-      const val=ctx.dataIndex===0?kpi3.compValue:kpi3.dirValue;
-      return \` \${ctx.parsed} PRs (\${pct}%) \u2013 \${fmtUSD(val)}\`;
+      return \` \${ctx.parsed} PRs (\${pct}%) – \${fmtUSD(vals[ctx.dataIndex])}\`;
     }}}},
-    onClick:(_e,el)=>{ if(!el.length)return; const ic=el[0].index===0;
-      openModal(ic?'Competitive PRs':'Direct / Other PRs',drillTable(filteredRows().filter(r=>r.isCompetitive===ic),['id','title','buyer','method','prValue','stage'])); }
+    onClick:(_e,el)=>{ if(!el.length)return;
+      const cats=[r=>r.isCompetitive, r=>r.isDirect&&!r.isCompetitive, r=>!r.isCompetitive&&!r.isDirect];
+      const lbls=['Competitive PRs','Direct Procurement PRs','Other PRs'];
+      const i=el[0].index;
+      openModal(lbls[i],drillTable(filteredRows().filter(cats[i]),['id','title','buyer','method','prValue','stage']));
+    }
   }});
 
   // Chart 4: Plan compliance pie (blue palette)
@@ -881,22 +917,25 @@ function renderCharts(K){
       openModal(\`Plan \u2013 \${b}\`,drillTable(filteredRows().filter(r=>r.planBucket===b),['id','title','buyer','method','prValue','stage'])); }
   }});
 
-  // Chart 5: Pipeline horizontal bar
-  mou('chart-pipeline',{type:'bar',data:{
-    labels:pipeline.map(d=>d.stage),
-    datasets:[{label:'# Items',data:pipeline.map(d=>d.count),backgroundColor:'#003366',borderRadius:4}]
-  },options:{indexAxis:'y',responsive:true,
-    plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>\` \${ctx.parsed.x} items  |  \${fmtUSD(pipeline[ctx.dataIndex].value)}\`}}},
-    scales:{x:{grid:{color:gc()},ticks:{color:tc()}},y:{grid:{display:false},ticks:{color:tc()}}},
-    onClick:(_e,el)=>{ if(!el.length)return; const s=pipeline[el[0].index].stage;
-      openModal(\`Pipeline \u2013 \${s}\`,drillTable(filteredRows().filter(r=>r.stage===s),['id','title','buyer','method','prValue','prReceived','poDate'])); }
+  // Chart 6: PR Assigned → Solicitation Issued
+  mou('chart-a2s',{type:'bar',data:{
+    labels:kpi6.map(d=>d.method),
+    datasets:[{label:'Avg days',data:kpi6.map(d=>d.avg),backgroundColor:'#0080c6',borderRadius:4}]
+  },options:{indexAxis:'y',responsive:true,plugins:{legend:{display:false},
+    tooltip:{callbacks:{label:ctx=>\` \${ctx.parsed.x}d (n=\${kpi6[ctx.dataIndex].count})\`}}},
+    scales:{x:{grid:{color:gc()},ticks:{color:tc()},title:{display:true,text:'Days',color:tc()}},y:{grid:{display:false},ticks:{color:tc()}}},
+    onClick:(_e,el)=>{ if(!el.length)return; const m=kpi6[el[0].index].method;
+      openModal(\`Prep Time – \${m}\`,drillTable(filteredRows().filter(r=>r.method===m&&r.dateAssigned&&r.solIssued),['id','title','buyer','dateAssigned','solIssued','prReceived']));
+    }
   }});
+
 }
 
 // ── Drill table ────────────────────────────────────────────────────
 const CL={id:'ID',title:'Description',buyer:'Buyer',method:'Method',prValue:'PR Value',
   cumulativePO:'Cumul. PO',savings:'Savings',stage:'Stage',prReceived:'PR Received',
-  poDate:'PO Date',cycleTime:'Cycle (d)',isCompetitive:'Competitive?',planBucket:'Plan'};
+  poDate:'PO Date',cycleTime:'Cycle (d)',isCompetitive:'Competitive?',planBucket:'Plan',
+  dateAssigned:'PR Assigned',solIssued:'Sol. Issued'};
 function cf(k,v){
   if(v===null||v===undefined||v==='')return'\u2013';
   if(['prValue','cumulativePO','savings'].includes(k))return fmtUSD(v);
