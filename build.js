@@ -388,6 +388,9 @@ function computeKPIs(rows) {
   }
   const projects = [...projectSet].sort();
 
+  // Solicitation methods list
+  const methods = [...new Set(rows.map(r => r.method).filter(Boolean))].sort();
+
   // ── Last modified date ────────────────────────────────────────────────────
   const modDates = rows.map(r => r.modified).filter(Boolean);
   const lastUpdated = modDates.length
@@ -407,8 +410,9 @@ function computeKPIs(rows) {
     dateClosed:   fmtDate(r.dateClosed),
   }));
 
-  return { kpi1, kpi2, kpi3, kpi4, kpi5, pipeline, years, buyers, stages, projects, lastUpdated, rows: serialRows, avgCycle };
+  return { kpi1, kpi2, kpi3, kpi4, kpi5, pipeline, years, buyers, stages, projects, methods, lastUpdated, rows: serialRows, avgCycle };
 }
+
 
 
 // ── HTML generator ────────────────────────────────────────────────────────────
@@ -458,6 +462,47 @@ function generateHTML(data) {
     .pill:hover{border-color:var(--blue);color:var(--blue);}
     .pill.on{background:var(--navy);border-color:var(--navy);color:#fff;}
 
+    /* Multi-check dropdown */
+    .mcd-wrap { position: relative; display: inline-block; }
+    .mcd-btn {
+      padding: 4px 14px 4px 10px; border-radius: 20px; font-size: 11.5px; font-weight: 600;
+      border: 1.5px solid var(--border); background: var(--card); color: var(--text);
+      cursor: pointer; white-space: nowrap; display: flex; align-items: center; gap: 6px;
+      font-family: inherit;
+    }
+    .mcd-btn:hover, .mcd-btn.open { border-color: var(--blue); color: var(--blue); }
+    .mcd-btn.has-selection { background: var(--navy); border-color: var(--navy); color: #fff; }
+    .mcd-panel {
+      display: none; position: absolute; top: calc(100% + 4px); left: 0; z-index: 200;
+      background: var(--card); border: 1.5px solid var(--border); border-radius: 10px;
+      box-shadow: 0 8px 24px rgba(0,0,0,.15); min-width: 220px; max-width: 320px;
+      padding: 8px 0;
+    }
+    .mcd-wrap.open .mcd-panel { display: block; }
+    .mcd-search {
+      display: block; width: calc(100% - 16px); margin: 0 8px 6px;
+      padding: 5px 10px; border: 1px solid var(--border); border-radius: 6px;
+      font-size: 12px; background: var(--bg); color: var(--text); font-family: inherit;
+    }
+    .mcd-search:focus { outline: none; border-color: var(--blue); }
+    .mcd-list { max-height: 220px; overflow-y: auto; }
+    .mcd-item {
+      display: flex; align-items: center; gap: 8px; padding: 5px 12px;
+      font-size: 12px; cursor: pointer; color: var(--text);
+    }
+    .mcd-item:hover { background: rgba(0,159,218,.08); }
+    .mcd-item input[type=checkbox] { accent-color: var(--navy); width: 13px; height: 13px; cursor: pointer; }
+    .mcd-clear {
+      display: block; width: calc(100% - 16px); margin: 6px 8px 0;
+      padding: 4px; font-size: 11px; text-align: center; cursor: pointer;
+      color: var(--blue); border: none; background: none; font-family: inherit;
+      border-top: 1px solid var(--border); padding-top: 8px;
+    }
+    .mcd-clear:hover { text-decoration: underline; }
+
+    /* KPI narrative */
+    .kpi-narrative { font-size: 11px; color: var(--muted); margin-top: 4px; line-height: 1.5; font-style: italic; }
+
     /* ── KPI strip ── */
     .kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px;}
     .kpi-card{background:var(--card);border-radius:12px;padding:16px 20px;box-shadow:var(--shadow);border-left:4px solid var(--blue);display:flex;flex-direction:column;gap:3px;}
@@ -496,7 +541,6 @@ function generateHTML(data) {
     table.drill th{background:var(--navy);color:#fff;padding:7px 10px;text-align:left;font-size:11px;}
     table.drill td{padding:6px 10px;border-bottom:1px solid var(--border);}
     table.drill tr:hover td{background:rgba(0,159,218,.06);}
-
     footer{text-align:center;font-size:11px;color:var(--muted);padding:20px;border-top:1px solid var(--border);margin-top:8px;}
 
     @media(max-width:768px){
@@ -511,29 +555,9 @@ function generateHTML(data) {
 <!-- ── HEADER ── -->
 <header class="hdr">
   <div class="hdr-left">
-    <!-- FAO logo SVG (simplified emblem) -->
-    <svg width="38" height="38" viewBox="0 0 38 38" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="19" cy="19" r="18" stroke="white" stroke-width="1.2" fill="none"/>
-      <!-- Wheat left -->
-      <line x1="9" y1="28" x2="12" y2="12" stroke="white" stroke-width="1"/>
-      <ellipse cx="10.5" cy="26" rx="2.2" ry="1.2" fill="white" transform="rotate(-20 10.5 26)"/>
-      <ellipse cx="10" cy="23" rx="2.2" ry="1.2" fill="white" transform="rotate(-15 10 23)"/>
-      <ellipse cx="11" cy="20" rx="2" ry="1.1" fill="white" transform="rotate(-10 11 20)"/>
-      <!-- Wheat right -->
-      <line x1="29" y1="28" x2="26" y2="12" stroke="white" stroke-width="1"/>
-      <ellipse cx="27.5" cy="26" rx="2.2" ry="1.2" fill="white" transform="rotate(20 27.5 26)"/>
-      <ellipse cx="28" cy="23" rx="2.2" ry="1.2" fill="white" transform="rotate(15 28 23)"/>
-      <ellipse cx="27" cy="20" rx="2" ry="1.1" fill="white" transform="rotate(10 27 20)"/>
-      <!-- Globe circle -->
-      <circle cx="19" cy="21" r="6" stroke="white" stroke-width="1" fill="none"/>
-      <line x1="13" y1="21" x2="25" y2="21" stroke="white" stroke-width=".8"/>
-      <ellipse cx="19" cy="21" rx="3" ry="6" stroke="white" stroke-width=".8" fill="none"/>
-      <!-- FAO text -->
-      <text x="19" y="12" text-anchor="middle" font-size="5.5" font-weight="bold" fill="white" font-family="Arial">FAO</text>
-    </svg>
     <div>
       <div class="hdr-title">Ukraine Procurement KPI Dashboard</div>
-      <div class="hdr-sub">Last updated: <span id="last-updated"></span> &nbsp;·&nbsp; Food and Agriculture Organization of the UN</div>
+      <div class="hdr-sub">Food and Agriculture Organization of the United Nations · Last updated: <span id="last-updated"></span></div>
     </div>
   </div>
   <label class="toggle-wrap" title="Toggle dark mode">
@@ -555,8 +579,26 @@ function generateHTML(data) {
     <div class="pills" id="pills-buyer"></div>
   </div>
   <div class="filter-group">
+    <div class="filter-label">🔖 Method</div>
+    <div class="mcd-wrap" id="mcd-method" data-filterkey="methods" data-labelall="All Methods">
+      <button class="mcd-btn" onclick="toggleMcd('mcd-method')">All Methods <span>▾</span></button>
+      <div class="mcd-panel">
+        <input class="mcd-search" type="search" placeholder="Search…" oninput="filterMcdItems('mcd-method',this.value)"/>
+        <div class="mcd-list" id="mcd-method-list"></div>
+        <button class="mcd-clear" onclick="clearMcd('mcd-method')">Clear selection</button>
+      </div>
+    </div>
+  </div>
+  <div class="filter-group">
     <div class="filter-label">📁 Project</div>
-    <div class="pills" id="pills-project"></div>
+    <div class="mcd-wrap" id="mcd-project" data-filterkey="projects" data-labelall="All Projects">
+      <button class="mcd-btn" onclick="toggleMcd('mcd-project')">All Projects <span>▾</span></button>
+      <div class="mcd-panel">
+        <input class="mcd-search" type="search" placeholder="Search…" oninput="filterMcdItems('mcd-project',this.value)"/>
+        <div class="mcd-list" id="mcd-project-list"></div>
+        <button class="mcd-clear" onclick="clearMcd('mcd-project')">Clear selection</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -628,22 +670,26 @@ function generateHTML(data) {
 const DASHBOARD_DATA = ${dataJson};
 
 // ── State ──────────────────────────────────────────────────────────
-let AF = { year:'', buyer:'', project:'' };
+let AF = { year: '', buyer: '', methods: new Set(), projects: new Set() };
 const CR = {};
 
 // ── Helpers ────────────────────────────────────────────────────────
-function fmt(n,d=0){ return n==null?'–':n.toLocaleString('en-US',{maximumFractionDigits:d,minimumFractionDigits:d}); }
-function fmtUSD(n){ return n==null?'–':'$'+fmt(n,0); }
+function fmt(n,d=0){ return n==null?'\u2013':n.toLocaleString('en-US',{maximumFractionDigits:d,minimumFractionDigits:d}); }
+function fmtUSD(n){ return n==null?'\u2013':'$'+fmt(n,0); }
 function isDark(){ return document.documentElement.getAttribute('data-theme')==='dark'; }
 function gc(){ return isDark()?'rgba(255,255,255,.07)':'rgba(0,0,0,.07)'; }
 function tc(){ return isDark()?'#94a3b8':'#64748b'; }
 
 // ── Filter rows ────────────────────────────────────────────────────
-function filteredRows(){
-  return DASHBOARD_DATA.rows.filter(r=>{
-    if(AF.year    && String(r.year)!==AF.year) return false;
-    if(AF.buyer   && r.buyer!==AF.buyer)       return false;
-    if(AF.project && !(r.projRef||'').includes(AF.project)) return false;
+function filteredRows() {
+  return DASHBOARD_DATA.rows.filter(r => {
+    if (AF.year   && String(r.year) !== AF.year)   return false;
+    if (AF.buyer  && r.buyer !== AF.buyer)          return false;
+    if (AF.methods.size  && !AF.methods.has(r.method || ''))  return false;
+    if (AF.projects.size) {
+      const rp = (r.projRef || '').split(';').map(p => p.trim()).filter(Boolean);
+      if (!rp.some(p => AF.projects.has(p))) return false;
+    }
     return true;
   });
 }
@@ -660,7 +706,7 @@ function recompute(rows){
   }
   const kpi1=Object.entries(cm).map(([method,t])=>{
     const avg=Math.round(t.reduce((a,b)=>a+b,0)/t.length);
-    return{method,avg,count:t.length,color:avg<=30?'#22c55e':avg<=90?'#f59e0b':'#ef4444'};
+    return{method,avg,count:t.length};
   }).sort((a,b)=>b.count-a.count);
   const allC=rows.filter(r=>r.cycleTime!==null&&r.cycleTime>=0).map(r=>r.cycleTime);
   const avgCycle=allC.length?Math.round(allC.reduce((a,b)=>a+b,0)/allC.length):0;
@@ -706,22 +752,48 @@ function recompute(rows){
 }
 
 // ── KPI Cards ──────────────────────────────────────────────────────
-function renderCards(K,total){
-  const {kpi2,kpi3,kpi4,avgCycle}=K;
-  const compPct=(kpi3.compCount+kpi3.dirCount)?Math.round(100*kpi3.compCount/(kpi3.compCount+kpi3.dirCount)):0;
-  const cycleCol=avgCycle<=30?'var(--green)':avgCycle<=90?'var(--amber)':'var(--red)';
-  const netCol=kpi2.net>=0?'var(--green)':'var(--red)';
-  const cards=[
-    {lbl:'Total PRs',     val:fmt(total),        sub:'in selection',         col:'var(--navy)'},
-    {lbl:'Avg Cycle Time',val:avgCycle+'d',       sub:'PR \u2192 PO issuance',     col:cycleCol},
-    {lbl:'Net Savings',   val:fmtUSD(kpi2.net),  sub:'vs estimated value',   col:netCol},
-    {lbl:'Competitive',   val:compPct+'%',        sub:fmt(kpi3.compCount)+' of '+fmt(kpi3.compCount+kpi3.dirCount)+' PRs', col:'var(--blue)'},
+function renderCards(K, total) {
+  const { kpi1, kpi2, kpi3, kpi4, avgCycle } = K;
+  const compPct = (kpi3.compCount + kpi3.dirCount)
+    ? Math.round(100 * kpi3.compCount / (kpi3.compCount + kpi3.dirCount)) : 0;
+
+  // Narratives
+  const target = 60;
+  const cycDiff = avgCycle - target;
+  const fastestM = [...kpi1].sort((a,b) => a.avg - b.avg)[0];
+  const compTarget = 70;
+
+  const narr = [
+    // Total PRs
+    (() => {
+      const closed = filteredRows().filter(r => /closed|po issued/i.test(r.stage||'')).length;
+      return \`\${total - closed} active, \${closed} closed or completed out of \${total} total.\`;
+    })(),
+    // Avg Cycle
+    cycDiff > 0
+      ? \`\${cycDiff} days above the \${target}-day benchmark.\${fastestM ? ' Fastest: '+fastestM.method+' ('+fastestM.avg+'d).' : ''}\`
+      : \`\${Math.abs(cycDiff)} days below the \${target}-day benchmark \u2014 within target.\${fastestM ? ' Fastest: '+fastestM.method+' ('+fastestM.avg+'d).' : ''}\`,
+    // Net Savings
+    \`\${fmtUSD(kpi2.sumPos)} positive, \${fmtUSD(Math.abs(kpi2.sumNeg))} negative. Avg monthly: \${fmtUSD(kpi2.avgMonthly)}.\`,
+    // Competitive
+    compPct >= compTarget
+      ? \`\${compPct}% competitive \u2014 above the \${compTarget}% target. \${kpi3.compCount} competitive vs \${kpi3.dirCount} direct.\`
+      : \`\${compPct}% competitive \u2014 below the \${compTarget}% target. \${kpi3.dirCount} direct procurements.\`,
   ];
-  document.getElementById('kpi-row').innerHTML=cards.map(c=>\`
-    <div class="kpi-card" style="border-left-color:\${c.col}">
+
+  const cols = ['var(--navy)', 'var(--blue)', 'var(--blue)', 'var(--navy)'];
+  const cards = [
+    { lbl: 'Total PRs',      val: fmt(total),        sub: 'in selection' },
+    { lbl: 'Avg Cycle Time', val: avgCycle + 'd',     sub: 'PR \u2192 PO issuance' },
+    { lbl: 'Net Savings',    val: fmtUSD(kpi2.net),  sub: 'vs estimated value' },
+    { lbl: 'Competitive',    val: compPct + '%',      sub: fmt(kpi3.compCount) + ' of ' + fmt(kpi3.compCount + kpi3.dirCount) + ' PRs' },
+  ];
+  document.getElementById('kpi-row').innerHTML = cards.map((c, i) => \`
+    <div class="kpi-card" style="border-left-color:\${cols[i]}">
       <div class="kpi-lbl">\${c.lbl}</div>
-      <div class="kpi-val" style="color:\${c.col}">\${c.val}</div>
+      <div class="kpi-val" style="color:\${cols[i]}">\${c.val}</div>
       <div class="kpi-sub">\${c.sub}</div>
+      <div class="kpi-narrative">\${narr[i]}</div>
     </div>\`).join('');
 }
 
@@ -746,10 +818,10 @@ function mou(id,cfg){
 function renderCharts(K){
   const{kpi1,kpi2,kpi3,kpi4,pipeline}=K;
 
-  // Chart 1: Cycle time horizontal bar
+  // Chart 1: Cycle time horizontal bar (blue palette, single color)
   mou('chart-cycle',{type:'bar',data:{
     labels:kpi1.map(d=>d.method),
-    datasets:[{label:'Avg days',data:kpi1.map(d=>d.avg),backgroundColor:kpi1.map(d=>d.color),borderRadius:4}]
+    datasets:[{label:'Avg days',data:kpi1.map(d=>d.avg),backgroundColor:'#4da6d9',borderRadius:4}]
   },options:{indexAxis:'y',responsive:true,plugins:{legend:{display:false},
     tooltip:{callbacks:{label:ctx=>\` \${ctx.parsed.x}d (n=\${kpi1[ctx.dataIndex].count})\`}}},
     scales:{x:{grid:{color:gc()},ticks:{color:tc()},title:{display:true,text:'Days',color:tc()}},y:{grid:{display:false},ticks:{color:tc()}}},
@@ -766,7 +838,7 @@ function renderCharts(K){
     labels,
     datasets:[
       {type:'bar',label:'Monthly Savings (USD)',data:kpi2.monthly.map(m=>m.total),
-       backgroundColor:kpi2.monthly.map(m=>m.total>=0?'rgba(34,197,94,.7)':'rgba(239,68,68,.7)'),borderRadius:3,order:2},
+       backgroundColor:kpi2.monthly.map(m=>m.total>=0?'rgba(0,128,198,.7)':'rgba(192,57,43,.7)'),borderRadius:3,order:2},
       {type:'line',label:'Monthly Average',data:avgArr,borderColor:'#f59e0b',borderWidth:2,borderDash:[5,4],
        pointRadius:0,fill:false,order:1,tension:0}
     ]
@@ -779,10 +851,10 @@ function renderCharts(K){
       }),['id','title','buyer','method','prValue','cumulativePO','savings'])); }
   }});
 
-  // Chart 3: Competitive vs Direct doughnut
+  // Chart 3: Competitive vs Direct doughnut (blue palette)
   mou('chart-comp',{type:'doughnut',data:{
     labels:['Competitive','Direct/Other'],
-    datasets:[{data:[kpi3.compCount,kpi3.dirCount],backgroundColor:['#009FDA','#f59e0b'],hoverOffset:6}]
+    datasets:[{data:[kpi3.compCount,kpi3.dirCount],backgroundColor:['#003366','#4da6d9'],hoverOffset:6}]
   },options:{responsive:true,plugins:{legend:{position:'bottom',labels:{color:tc()}},
     tooltip:{callbacks:{label:ctx=>{
       const tot=kpi3.compCount+kpi3.dirCount;
@@ -794,11 +866,11 @@ function renderCharts(K){
       openModal(ic?'Competitive PRs':'Direct / Other PRs',drillTable(filteredRows().filter(r=>r.isCompetitive===ic),['id','title','buyer','method','prValue','stage'])); }
   }});
 
-  // Chart 4: Plan compliance pie
+  // Chart 4: Plan compliance pie (blue palette)
   const pLabels=['Planned','Unplanned','N/A'];
   mou('chart-plan',{type:'pie',data:{
     labels:pLabels,
-    datasets:[{data:pLabels.map(l=>kpi4.planCounts[l]),backgroundColor:['#22c55e','#ef4444','#94a3b8'],hoverOffset:6}]
+    datasets:[{data:pLabels.map(l=>kpi4.planCounts[l]),backgroundColor:['#003366','#c0392b','#9ecae1'],hoverOffset:6}]
   },options:{responsive:true,plugins:{legend:{position:'bottom',labels:{color:tc()}},
     tooltip:{callbacks:{label:ctx=>{
       const tot=pLabels.reduce((a,l)=>a+kpi4.planCounts[l],0);
@@ -812,7 +884,7 @@ function renderCharts(K){
   // Chart 5: Pipeline horizontal bar
   mou('chart-pipeline',{type:'bar',data:{
     labels:pipeline.map(d=>d.stage),
-    datasets:[{label:'# Items',data:pipeline.map(d=>d.count),backgroundColor:'#009FDA',borderRadius:4}]
+    datasets:[{label:'# Items',data:pipeline.map(d=>d.count),backgroundColor:'#003366',borderRadius:4}]
   },options:{indexAxis:'y',responsive:true,
     plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>\` \${ctx.parsed.x} items  |  \${fmtUSD(pipeline[ctx.dataIndex].value)}\`}}},
     scales:{x:{grid:{color:gc()},ticks:{color:tc()}},y:{grid:{display:false},ticks:{color:tc()}}},
@@ -881,6 +953,72 @@ function makePills(containerId,items,filterKey){
   });
 }
 
+// ── Multi-check dropdown ───────────────────────────────────────────
+const MCD_STATE = {}; // id to Set of selected values
+
+function initMcd(wrapId, items, filterKey, labelAll) {
+  MCD_STATE[wrapId] = new Set();
+  const list = document.getElementById(wrapId + '-list');
+  items.forEach(item => {
+    const div = document.createElement('div');
+    div.className = 'mcd-item';
+    div.dataset.val = item;
+    div.innerHTML = \`<input type="checkbox" data-val="\${item.replace(/"/g,'&quot;')}"/><span>\${item}</span>\`;
+    div.querySelector('input').addEventListener('change', function() {
+      if (this.checked) MCD_STATE[wrapId].add(item);
+      else MCD_STATE[wrapId].delete(item);
+      AF[filterKey] = MCD_STATE[wrapId];
+      updateMcdBtn(wrapId, labelAll);
+      refresh();
+    });
+    list.appendChild(div);
+  });
+  // Close on outside click
+  document.addEventListener('click', e => {
+    const wrap = document.getElementById(wrapId);
+    if (!wrap.contains(e.target)) wrap.classList.remove('open');
+  });
+}
+
+function toggleMcd(wrapId) {
+  const wrap = document.getElementById(wrapId);
+  // Close all others
+  document.querySelectorAll('.mcd-wrap.open').forEach(w => { if (w.id !== wrapId) w.classList.remove('open'); });
+  wrap.classList.toggle('open');
+}
+
+function filterMcdItems(wrapId, query) {
+  const q = query.toLowerCase();
+  document.querySelectorAll(\`#\${wrapId}-list .mcd-item\`).forEach(item => {
+    item.style.display = item.dataset.val.toLowerCase().includes(q) ? '' : 'none';
+  });
+}
+
+function clearMcd(wrapId) {
+  MCD_STATE[wrapId].clear();
+  document.querySelectorAll(\`#\${wrapId}-list input[type=checkbox]\`).forEach(cb => cb.checked = false);
+  const wrapEl = document.getElementById(wrapId);
+  const filterKey = wrapEl.dataset.filterkey;
+  AF[filterKey] = MCD_STATE[wrapId];
+  updateMcdBtn(wrapId, wrapEl.dataset.labelall);
+  refresh();
+}
+
+function updateMcdBtn(wrapId, labelAll) {
+  const wrap = document.getElementById(wrapId);
+  const btn = wrap.querySelector('.mcd-btn');
+  const sel = MCD_STATE[wrapId];
+  if (sel.size === 0) {
+    btn.textContent = '';
+    btn.innerHTML = labelAll + ' <span>\u25be</span>';
+    btn.classList.remove('has-selection');
+  } else {
+    btn.textContent = '';
+    btn.innerHTML = sel.size + ' selected <span>\u25be</span>';
+    btn.classList.add('has-selection');
+  }
+}
+
 // ── Buyer drill (from workload card) ──────────────────────────────
 function openBuyerDrill(buyer){
   openModal(\`Workload \u2013 \${buyer}\`,drillTable(filteredRows().filter(r=>r.buyer===buyer),['id','title','method','prValue','stage','prReceived','poDate','cycleTime']));
@@ -896,15 +1034,17 @@ function refresh(){
 }
 
 // ── Init ───────────────────────────────────────────────────────────
-document.getElementById('last-updated').textContent=DASHBOARD_DATA.lastUpdated;
-makePills('pills-year',  DASHBOARD_DATA.years,    'year');
-makePills('pills-buyer', DASHBOARD_DATA.buyers,   'buyer');
-makePills('pills-project',DASHBOARD_DATA.projects,'project');
+document.getElementById('last-updated').textContent = DASHBOARD_DATA.lastUpdated;
+makePills('pills-year',  DASHBOARD_DATA.years,  'year');
+makePills('pills-buyer', DASHBOARD_DATA.buyers, 'buyer');
+initMcd('mcd-method',  DASHBOARD_DATA.methods,  'methods',  'All Methods');
+initMcd('mcd-project', DASHBOARD_DATA.projects, 'projects', 'All Projects');
 refresh();
 <\/script>
 </body>
 </html>`;
 }
+
 
 // ── Entry point ───────────────────────────────────────────────────────────────
 
