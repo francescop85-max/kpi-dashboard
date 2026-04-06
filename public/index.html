@@ -96,8 +96,8 @@
     .full{grid-column:1/-1;}
     .chart-card{background:var(--card);border-radius:12px;padding:18px 20px;box-shadow:var(--shadow);position:relative;}
     .chart-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:10px;}
-    .disclaimer{font-size:10.5px;color:var(--muted);line-height:1.55;font-style:italic;background:rgba(0,0,0,.03);border-left:3px solid var(--border);padding:6px 10px;border-radius:0 4px 4px 0;margin-bottom:12px;}
-    [data-theme="dark"] .disclaimer{background:rgba(255,255,255,.04);}
+    .disclaimer{font-size:10.5px;color:#64748b;line-height:1.55;font-style:italic;background:#f8fafc;border:1px solid #e2e8f0;border-left:3px solid #94a3b8;padding:7px 10px;border-radius:4px;margin-top:12px;}
+    [data-theme="dark"] .disclaimer{background:#1e293b;color:#94a3b8;border-color:#334155;border-left-color:#64748b;}
     .export-btn{position:absolute;top:12px;right:12px;font-size:10px;padding:2px 8px;background:rgba(0,159,218,.1);border:1px solid #009FDA;color:#009FDA;border-radius:4px;cursor:pointer;font-family:inherit;}
     .export-btn:hover{background:rgba(0,159,218,.25);}
     canvas{max-height:300px;}
@@ -202,8 +202,8 @@
     <div class="chart-card full">
       <button class="export-btn" onclick="exportChart('chart-cycle')">PNG</button>
       <div class="chart-title">KPI 1 – Avg Cycle Time by Method (days)</div>
-      <div class="disclaimer">&#9432; Some PRs are approved with a symbolic value ahead of project activation to allow advance tendering. This may inflate the PR→PO cycle time where the project was not yet operationally active in the system at PR creation.</div>
       <canvas id="chart-cycle"></canvas>
+      <div class="disclaimer">&#9432; Some PRs are approved with a symbolic value ahead of project activation to allow advance tendering. This may inflate the PR→PO cycle time where the project was not yet operationally active in the system at PR creation.</div>
     </div>
   </div>
 
@@ -221,8 +221,8 @@
     <div class="chart-card">
       <button class="export-btn" onclick="exportChart('chart-comp')">PNG</button>
       <div class="chart-title">KPI 3 – Competitive vs Direct</div>
-      <div class="disclaimer">&#9432; <strong>Other</strong> includes PRs where the solicitation method does not map to a competitive or direct procurement category — typically older records created before the Award Basis field was introduced, or methods not yet classified in the system.</div>
       <canvas id="chart-comp"></canvas>
+      <div class="disclaimer">&#9432; <strong>Other</strong> includes PRs where the solicitation method does not map to a competitive or direct procurement category — typically older records created before the Award Basis field was introduced, or methods not yet classified in the system.</div>
     </div>
     <div class="chart-card">
       <button class="export-btn" onclick="exportChart('chart-plan')">PNG</button>
