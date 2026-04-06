@@ -378,8 +378,10 @@ function recompute(rows){
 function renderCards(K, total) {
   const { kpi1, kpi2, kpi3, kpi4, avgCycle, kpi6, avgAssignToSol } = K;
   const compTotal = kpi3.compCount + kpi3.dirCount + kpi3.otherCount;
-  const compPct = compTotal ? Math.round(100 * kpi3.compCount / compTotal) : 0;
-  const dirPct  = compTotal ? Math.round(100 * kpi3.dirCount  / compTotal) : 0;
+  // Exclude unclassified (Other) from the competitive % — those records pre-date the Award Basis field
+  const compBase = kpi3.compCount + kpi3.dirCount;
+  const compPct = compBase ? Math.round(100 * kpi3.compCount / compBase) : 0;
+  const dirPct  = compBase ? Math.round(100 * kpi3.dirCount  / compBase) : 0;
 
   const target = 60; const cycDiff = avgCycle - target;
   const fastestM = [...kpi1].sort((a,b)=>a.avg-b.avg)[0];
@@ -390,8 +392,8 @@ function renderCards(K, total) {
     cycDiff>0 ? `${cycDiff}d above the ${target}-day benchmark.${fastestM?' Fastest: '+fastestM.method+' ('+fastestM.avg+'d).':''}`
               : `Within target — ${Math.abs(cycDiff)}d below the ${target}-day benchmark.${fastestM?' Fastest: '+fastestM.method+' ('+fastestM.avg+'d).':''}`,
     `${fmtUSD(kpi2.sumPos)} positive, ${fmtUSD(Math.abs(kpi2.sumNeg))} negative. Avg monthly: ${fmtUSD(kpi2.avgMonthly)}.`,
-    compPct>=compTarget ? `${compPct}% competitive (target ${compTarget}%). Direct procurement: ${dirPct}% (${kpi3.dirCount} PRs, ${fmtUSD(kpi3.dirValue)}).`
-                        : `${compPct}% competitive — below ${compTarget}% target. Direct: ${dirPct}% (${kpi3.dirCount} PRs). ${kpi3.otherCount} unclassified.`,
+    compPct>=compTarget ? `${compPct}% competitive (target ${compTarget}%, excl. ${kpi3.otherCount} unclassified). Direct: ${dirPct}% (${kpi3.dirCount} PRs, ${fmtUSD(kpi3.dirValue)}).`
+                        : `${compPct}% competitive — below ${compTarget}% target (excl. ${kpi3.otherCount} unclassified). Direct: ${dirPct}% (${kpi3.dirCount} PRs).`,
     avgAssignToSol > 0 ? `Avg ${avgAssignToSol} days from PR assignment to solicitation launch.${kpi6[0]?' Slowest: '+kpi6.slice(-1)[0].method+' ('+kpi6.slice(-1)[0].avg+'d).':''}`
                        : 'No data available for this period.',
   ];
@@ -406,7 +408,7 @@ function renderCards(K, total) {
     { lbl:'Total PRs',       val:fmt(total),           sub:'in selection',                  col:'var(--navy)' },
     { lbl:'Avg Cycle Time',  val:avgCycle+'d',          sub:`target ${target}d`,             col:cycCol },
     { lbl:'Net Savings',     val:fmtUSD(kpi2.net),     sub:'vs estimated value',             col:savCol },
-    { lbl:'Competitive',     val:compPct+'%',           sub:fmt(kpi3.compCount)+' of '+fmt(compTotal)+' PRs', col:cmpCol },
+    { lbl:'Competitive',     val:compPct+'%',           sub:fmt(kpi3.compCount)+' of '+fmt(compBase)+' classified PRs', col:cmpCol },
     { lbl:'Avg Prep Time',   val:avgAssignToSol+'d',    sub:'PR assigned → solicitation',    col:prepCol },
   ];
   document.getElementById('kpi-row').innerHTML = cards.map((c,i) => `
