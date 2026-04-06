@@ -95,7 +95,9 @@
     .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;}
     .full{grid-column:1/-1;}
     .chart-card{background:var(--card);border-radius:12px;padding:18px 20px;box-shadow:var(--shadow);position:relative;}
-    .chart-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:14px;}
+    .chart-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:10px;}
+    .disclaimer{font-size:10.5px;color:var(--muted);line-height:1.55;font-style:italic;background:rgba(0,0,0,.03);border-left:3px solid var(--border);padding:6px 10px;border-radius:0 4px 4px 0;margin-bottom:12px;}
+    [data-theme="dark"] .disclaimer{background:rgba(255,255,255,.04);}
     .export-btn{position:absolute;top:12px;right:12px;font-size:10px;padding:2px 8px;background:rgba(0,159,218,.1);border:1px solid #009FDA;color:#009FDA;border-radius:4px;cursor:pointer;font-family:inherit;}
     .export-btn:hover{background:rgba(0,159,218,.25);}
     canvas{max-height:300px;}
@@ -195,22 +197,17 @@
   <!-- KPI summary strip -->
   <div class="kpi-row" id="kpi-row"></div>
 
-  <!-- Charts row 1: Cycle Time + Competitive -->
+  <!-- KPI 1: Cycle Time (full width) -->
   <div class="grid2">
-    <div class="chart-card">
+    <div class="chart-card full">
       <button class="export-btn" onclick="exportChart('chart-cycle')">PNG</button>
       <div class="chart-title">KPI 1 – Avg Cycle Time by Method (days)</div>
+      <div class="disclaimer">&#9432; Some PRs are approved with a symbolic value ahead of project activation to allow advance tendering. This may inflate the PR→PO cycle time where the project was not yet operationally active in the system at PR creation.</div>
       <canvas id="chart-cycle"></canvas>
-      <p style="font-size:10px;color:var(--muted);margin-top:10px;line-height:1.5;font-style:italic;">&#9432; Some PRs are approved with a symbolic value ahead of project activation to allow advance tendering. This may inflate the PR→PO cycle time in cases where the project was not yet operationally active in the system at the time of PR creation.</p>
-    </div>
-    <div class="chart-card">
-      <button class="export-btn" onclick="exportChart('chart-comp')">PNG</button>
-      <div class="chart-title">KPI 3 – Competitive vs Direct</div>
-      <canvas id="chart-comp"></canvas>
     </div>
   </div>
 
-  <!-- Charts row 2: Savings over time (full width) -->
+  <!-- KPI 2: Savings over time (full width) -->
   <div class="grid2">
     <div class="chart-card full">
       <button class="export-btn" onclick="exportChart('chart-savings')">PNG</button>
@@ -219,22 +216,32 @@
     </div>
   </div>
 
-  <!-- Charts row 3: Plan Compliance + Buyer Workload -->
-  <div class="grid2" style="margin-bottom:16px;">
+  <!-- KPI 3 + KPI 4 side by side -->
+  <div class="grid2">
+    <div class="chart-card">
+      <button class="export-btn" onclick="exportChart('chart-comp')">PNG</button>
+      <div class="chart-title">KPI 3 – Competitive vs Direct</div>
+      <div class="disclaimer">&#9432; <strong>Other</strong> includes PRs where the solicitation method does not map to a competitive or direct procurement category — typically older records created before the Award Basis field was introduced, or methods not yet classified in the system.</div>
+      <canvas id="chart-comp"></canvas>
+    </div>
     <div class="chart-card">
       <button class="export-btn" onclick="exportChart('chart-plan')">PNG</button>
       <div class="chart-title">KPI 4 – Plan Compliance</div>
       <canvas id="chart-plan"></canvas>
     </div>
-    <div class="chart-card">
+  </div>
+
+  <!-- KPI 5: Team Workload (full width) -->
+  <div class="grid2">
+    <div class="chart-card full">
       <button class="export-btn" onclick="exportChart('chart-workload')">PNG</button>
-      <div class="chart-title">KPI 5 – Team Workload vs Target (20 PRs / buyer)</div>
+      <div class="chart-title">KPI 5 – Team Workload vs Target (15 PRs / buyer)</div>
       <div id="workload-summary"></div>
       <canvas id="chart-workload"></canvas>
     </div>
   </div>
 
-  <!-- KPI 6: Prep Time -->
+  <!-- KPI 6: Prep Time (full width) -->
   <div class="grid2">
     <div class="chart-card full">
       <button class="export-btn" onclick="exportChart('chart-a2s')">PNG</button>
