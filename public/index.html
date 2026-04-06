@@ -422,18 +422,26 @@ function renderWorkload(kpi5){
         <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-top:2px">Active buyers</div>
       </div>
     </div>`;
-  const labels=wlMonthly.map(m=>{ const[y,mo]=m.month.split('-'); return new Date(+y,+mo-1).toLocaleString('en',{month:'short',year:'2-digit'}); });
+  // Aggregate monthly → quarterly
+  const qMap={};
+  wlMonthly.forEach(m=>{
+    const[y,mo]=m.month.split('-');
+    const q=`${y} Q${Math.ceil(+mo/3)}`;
+    if(!qMap[q])qMap[q]={total:0,buyers:0,months:0};
+    qMap[q].total+=m.total; qMap[q].buyers+=m.numBuyers; qMap[q].months++;
+  });
+  const wlQ=Object.entries(qMap).map(([q,d])=>({q,avg:d.months?parseFloat((d.total/(d.buyers/d.months)).toFixed(1)):0,numBuyers:Math.round(d.buyers/d.months)}));
   mou('chart-workload',{type:'bar',data:{
-    labels,
+    labels:wlQ.map(d=>d.q),
     datasets:[
-      {type:'bar',label:'Avg PRs/buyer',data:wlMonthly.map(m=>m.avg),
-       backgroundColor:wlMonthly.map(m=>m.avg>wlTarget?'rgba(239,68,68,.75)':'rgba(0,128,198,.65)'),borderRadius:3,order:2},
-      {type:'line',label:`Target (${wlTarget})`,data:wlMonthly.map(()=>wlTarget),
+      {type:'bar',label:'Avg PRs/buyer',data:wlQ.map(d=>d.avg),
+       backgroundColor:wlQ.map(d=>d.avg>wlTarget?'rgba(239,68,68,.75)':'rgba(0,128,198,.65)'),borderRadius:3,order:2},
+      {type:'line',label:`Target (${wlTarget})`,data:wlQ.map(()=>wlTarget),
        borderColor:'#f59e0b',borderWidth:2,borderDash:[6,4],pointRadius:0,fill:false,order:1,tension:0},
     ]
   },options:{responsive:true,plugins:{legend:{labels:{color:tc()}},
-    tooltip:{callbacks:{label:ctx=>ctx.dataset.type==='bar'?` ${ctx.parsed.y} PRs/buyer (${wlMonthly[ctx.dataIndex].numBuyers} buyers)`:` Target: ${wlTarget}`}}},
-    scales:{x:{grid:{color:gc()},ticks:{color:tc(),maxRotation:45}},
+    tooltip:{callbacks:{label:ctx=>ctx.dataset.type==='bar'?` ${ctx.parsed.y} PRs/buyer (~${wlQ[ctx.dataIndex].numBuyers} buyers)`:` Target: ${wlTarget}`}}},
+    scales:{x:{grid:{color:gc()},ticks:{color:tc()}},
             y:{grid:{color:gc()},ticks:{color:tc()},title:{display:true,text:'Avg PRs / buyer',color:tc()},suggestedMin:0}},
   }});
 }
@@ -532,7 +540,9 @@ function renderCharts(K){
     labels:kpi6.map(d=>d.method),
     datasets:[{label:'Avg days',data:kpi6.map(d=>d.avg),backgroundColor:'#0080c6',borderRadius:4}]
   },options:{indexAxis:'y',responsive:true,plugins:{legend:{display:false},
-    tooltip:{callbacks:{label:ctx=>` ${ctx.parsed.x}d (n=${kpi6[ctx.dataIndex].count})`}}},
+    tooltip:{callbacks:{label:ctx=>` ${ctx.parsed.x}d (n=${kpi6[ctx.dataIndex].count})`}},
+    datalabels:{display:true,anchor:'end',align:'end',color:tc(),font:{size:11,weight:'600'},
+      formatter:v=>`${v}d`}},
     scales:{x:{grid:{color:gc()},ticks:{color:tc()},title:{display:true,text:'Days',color:tc()}},y:{grid:{display:false},ticks:{color:tc()}}},
     onClick:(_e,el)=>{ if(!el.length)return; const m=kpi6[el[0].index].method;
       openModal(`Prep Time – ${m}`,drillTable(filteredRows().filter(r=>r.method===m&&r.dateAssigned&&r.solIssued),['id','title','buyer','dateAssigned','solIssued','prReceived']));
