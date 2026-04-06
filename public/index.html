@@ -96,6 +96,8 @@
     .full{grid-column:1/-1;}
     .chart-card{background:var(--card);border-radius:12px;padding:18px 20px;box-shadow:var(--shadow);position:relative;}
     .chart-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:10px;}
+    .kpi-desc{font-size:11.5px;color:#475569;line-height:1.5;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid #e2e8f0;}
+    [data-theme="dark"] .kpi-desc{color:#94a3b8;border-bottom-color:#334155;}
     .disclaimer{font-size:10.5px;color:#64748b;line-height:1.55;font-style:italic;background:#f8fafc;border:1px solid #e2e8f0;border-left:3px solid #94a3b8;padding:7px 10px;border-radius:4px;margin-top:12px;}
     [data-theme="dark"] .disclaimer{background:#1e293b;color:#94a3b8;border-color:#334155;border-left-color:#64748b;}
     .export-btn{position:absolute;top:12px;right:12px;font-size:10px;padding:2px 8px;background:rgba(0,159,218,.1);border:1px solid #009FDA;color:#009FDA;border-radius:4px;cursor:pointer;font-family:inherit;}
@@ -202,6 +204,7 @@
     <div class="chart-card full">
       <button class="export-btn" onclick="exportChart('chart-cycle')">PNG</button>
       <div class="chart-title">KPI 1 – Avg Cycle Time by Method (days)</div>
+      <div class="kpi-desc">Measures the average number of calendar days from the date a Purchase Request (PR) is received to the date the Purchase Order (PO) is issued, broken down by solicitation method. A lower value indicates faster procurement execution.</div>
       <canvas id="chart-cycle"></canvas>
       <div class="disclaimer">&#9432; Some PRs are approved with a symbolic value ahead of project activation to allow advance tendering. This may inflate the PR→PO cycle time where the project was not yet operationally active in the system at PR creation.</div>
     </div>
@@ -212,7 +215,9 @@
     <div class="chart-card full">
       <button class="export-btn" onclick="exportChart('chart-savings')">PNG</button>
       <div class="chart-title">KPI 2 – Savings per Month (USD) with Average</div>
+      <div class="kpi-desc">Tracks the cumulative procurement savings achieved each month, calculated as the difference between the estimated PR value and the final PO value. Positive figures indicate money saved against the initial budget estimate.</div>
       <canvas id="chart-savings"></canvas>
+      <div class="disclaimer">&#9432; Savings are calculated as the gap between the requisitioner's estimated value and the final contracted amount. This assumes the original estimate was realistic and market-facing. Where estimates were conservative or inflated, the savings figure may not reflect actual market efficiency.</div>
     </div>
   </div>
 
@@ -221,13 +226,16 @@
     <div class="chart-card">
       <button class="export-btn" onclick="exportChart('chart-comp')">PNG</button>
       <div class="chart-title">KPI 3 – Competitive vs Direct</div>
+      <div class="kpi-desc">Shows the proportion of PRs awarded through competitive solicitation (open tender, RFQ, ITB, RFP, etc.) versus direct procurement. Excludes unclassified records from the competitive % headline figure.</div>
       <canvas id="chart-comp"></canvas>
       <div class="disclaimer">&#9432; <strong>Other</strong> includes PRs where the solicitation method does not map to a competitive or direct procurement category — typically older records created before the Award Basis field was introduced, or methods not yet classified in the system.</div>
     </div>
     <div class="chart-card">
       <button class="export-btn" onclick="exportChart('chart-plan')">PNG</button>
       <div class="chart-title">KPI 4 – Plan Compliance</div>
+      <div class="kpi-desc">Tracks whether each PR was anticipated in FAO's procurement planning module. A higher share of planned PRs reflects stronger forecasting and budget discipline.</div>
       <canvas id="chart-plan"></canvas>
+      <div class="disclaimer">&#9432; Each PR is reviewed against FAO's procurement planning module and categorised as <strong>Planned</strong> (included in the approved plan), <strong>Unplanned</strong> (not anticipated), or <strong>N/A</strong> — for procurement activities that could not reasonably have been foreseen in advance, or for which a planning system was not available at the time.</div>
     </div>
   </div>
 
@@ -236,6 +244,7 @@
     <div class="chart-card full">
       <button class="export-btn" onclick="exportChart('chart-workload')">PNG</button>
       <div class="chart-title">KPI 5 – Team Workload vs Target (15 PRs / buyer)</div>
+      <div class="kpi-desc">Monitors the average number of active Purchase Requests managed per procurement officer over time, compared to a standard workload target of 15 PRs per buyer. Bars in red indicate quarters where the team average exceeded the target — a key indicator for staffing adequacy.</div>
       <div id="workload-summary"></div>
       <canvas id="chart-workload"></canvas>
     </div>
@@ -246,6 +255,7 @@
     <div class="chart-card full">
       <button class="export-btn" onclick="exportChart('chart-a2s')">PNG</button>
       <div class="chart-title">KPI 6 – Avg Prep Time: PR Assigned → Solicitation Issued (days)</div>
+      <div class="kpi-desc">Measures the average number of calendar days between the date a PR is assigned to a procurement officer and the date the solicitation document is issued to the market. This reflects the internal preparation efficiency of the procurement team.</div>
       <canvas id="chart-a2s"></canvas>
     </div>
   </div>
