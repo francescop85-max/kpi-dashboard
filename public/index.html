@@ -296,7 +296,7 @@ function tc(){ return isDark()?'#94a3b8':'#64748b'; }
 // ── Filter rows ────────────────────────────────────────────────────
 function filteredRows() {
   return DASHBOARD_DATA.rows.filter(r => {
-    if (AF.year   && String(r.year) !== AF.year)   return false;
+    if (AF.year   && String(r.year) !== String(AF.year))   return false;
     if (AF.buyer  && r.buyer !== AF.buyer)          return false;
     if (AF.methods.size  && !AF.methods.has(r.method || ''))  return false;
     if (AF.projects.size) {
