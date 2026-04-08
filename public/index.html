@@ -199,17 +199,6 @@
   <!-- KPI summary strip -->
   <div class="kpi-row" id="kpi-row"></div>
 
-  <!-- KPI 1: Cycle Time (full width) -->
-  <div class="grid2">
-    <div class="chart-card full">
-      <button class="export-btn" onclick="exportChart('chart-cycle')">PNG</button>
-      <div class="chart-title">KPI 1 – Avg Cycle Time by Method (days)</div>
-      <div class="kpi-desc">Measures the average number of calendar days from the date a Purchase Request (PR) is received to the date the Purchase Order (PO) is issued, broken down by solicitation method. A lower value indicates faster procurement execution.</div>
-      <canvas id="chart-cycle"></canvas>
-      <div class="disclaimer">&#9432; Some PRs are approved with a symbolic value ahead of project activation to allow advance tendering. This may inflate the PR→PO cycle time where the project was not yet operationally active in the system at PR creation.</div>
-    </div>
-  </div>
-
   <!-- KPI 1 Trend: Cycle Time over Time -->
   <div class="grid2">
     <div class="chart-card full">
@@ -527,37 +516,43 @@ function mou(id,cfg){
 
 // ── KPI 1 trend state ─────────────────────────────────────────────
 let lastKpi1Trend=null;
-let kpi1MethodSel='';
+let kpi1MethodSel=new Set();
+const KPI1_PALETTE=['#009FDA','#003366','#22c55e','#8b5cf6','#ec4899','#06b6d4','#84cc16','#f97316','#a16207','#0f766e'];
 
 function renderCycleTrend(trend){
   if(!trend||!trend.months.length) return;
-  const method=kpi1MethodSel;
+  const methods=[...kpi1MethodSel];
   const labels=trend.months.map(m=>{
     const[y,mo]=m.split('-');
     return new Date(+y,+mo-1).toLocaleString('en',{month:'short',year:'2-digit'});
   });
-  let pts,lbl;
-  if(!method){ pts=trend.data.map(d=>d.avg); lbl='All Methods'; }
-  else{ pts=trend.data.map(d=>d.byMethod[method]??null); lbl=method; }
-  const TARGET=60;
-  mou('chart-cycle-trend',{type:'line',data:{
-    labels,
-    datasets:[
-      {label:`Avg Cycle Time – ${lbl}`,data:pts,
-       borderColor:'#009FDA',backgroundColor:'rgba(0,159,218,0.08)',
-       borderWidth:2,pointRadius:5,tension:0.3,spanGaps:true,fill:true,
-       pointBackgroundColor:pts.map(v=>v===null?'transparent':v<=30?'#22c55e':v<=90?'#f59e0b':'#ef4444'),
-       pointBorderColor:pts.map(v=>v===null?'transparent':v<=30?'#22c55e':v<=90?'#f59e0b':'#ef4444')},
-      {label:`Target (${TARGET}d)`,data:trend.months.map(()=>TARGET),
-       borderColor:'#f59e0b',borderWidth:2,borderDash:[6,4],pointRadius:0,fill:false,tension:0},
-    ]
-  },options:{responsive:true,plugins:{
+  let datasets;
+  if(!methods.length){
+    const pts=trend.data.map(d=>d.avg);
+    datasets=[{label:'All Methods (avg)',data:pts,
+      borderColor:'#009FDA',backgroundColor:'rgba(0,159,218,0.08)',
+      borderWidth:2,pointRadius:5,tension:0.3,spanGaps:true,fill:true,
+      pointBackgroundColor:pts.map(v=>v===null?'transparent':v<=30?'#22c55e':v<=90?'#f59e0b':'#ef4444'),
+      pointBorderColor:pts.map(v=>v===null?'transparent':v<=30?'#22c55e':v<=90?'#f59e0b':'#ef4444')}];
+  } else {
+    datasets=methods.map((method,i)=>{
+      const color=KPI1_PALETTE[i%KPI1_PALETTE.length];
+      const pts=trend.data.map(d=>d.byMethod[method]??null);
+      return{label:method,data:pts,borderColor:color,backgroundColor:color+'18',
+        borderWidth:2,pointRadius:4,tension:0.3,spanGaps:true,fill:false,
+        pointBackgroundColor:pts.map(v=>v===null?'transparent':v<=30?'#22c55e':v<=90?'#f59e0b':'#ef4444'),
+        pointBorderColor:pts.map(v=>v===null?'transparent':v<=30?'#22c55e':v<=90?'#f59e0b':'#ef4444')};
+    });
+  }
+  datasets.push({label:'Target (60d)',data:trend.months.map(()=>60),
+    borderColor:'#f59e0b',borderWidth:2,borderDash:[6,4],pointRadius:0,fill:false,tension:0});
+  mou('chart-cycle-trend',{type:'line',data:{labels,datasets},options:{responsive:true,plugins:{
     legend:{labels:{color:tc()}},
     datalabels:{display:false},
-    tooltip:{callbacks:{label:ctx=>ctx.parsed.y!==null?` ${Math.round(ctx.parsed.y)}d`:' No data'}},
+    tooltip:{callbacks:{label:ctx=>ctx.parsed.y!==null?' '+Math.round(ctx.parsed.y)+'d':' No data'}},
   },scales:{
     x:{grid:{color:gc()},ticks:{color:tc(),maxRotation:45}},
-    y:{grid:{color:gc()},ticks:{color:tc(),callback:v=>`${v}d`},
+    y:{grid:{color:gc()},ticks:{color:tc(),callback:v=>v+'d'},
        title:{display:true,text:'Avg Cycle Time (days)',color:tc()},suggestedMin:0},
   }}});
 }
@@ -566,18 +561,6 @@ function renderCycleTrend(trend){
 function renderCharts(K){
   const{kpi1,kpi2,kpi3,kpi4,kpi6,pipeline,kpi1Trend}=K;
   lastKpi1Trend=kpi1Trend;
-
-  // Chart 1: Cycle time horizontal bar — descending by avg, with day labels
-  mou('chart-cycle',{type:'bar',data:{
-    labels:kpi1.map(d=>d.method),
-    datasets:[{label:'Avg days',data:kpi1.map(d=>d.avg),backgroundColor:'#4da6d9',borderRadius:4}]
-  },options:{indexAxis:'y',responsive:true,plugins:{legend:{display:false},
-    datalabels:{display:true,anchor:'end',align:'end',color:tc(),font:{size:11,weight:'600'},formatter:v=>`${v}d`},
-    tooltip:{callbacks:{label:ctx=>` ${ctx.parsed.x}d (n=${kpi1[ctx.dataIndex].count})`}}},
-    scales:{x:{grid:{color:gc()},ticks:{color:tc()},title:{display:true,text:'Days',color:tc()}},y:{grid:{display:false},ticks:{color:tc()}}},
-    onClick:(_e,el)=>{ if(!el.length)return; const m=kpi1[el[0].index].method;
-      openModal(`Cycle Time – ${m}`,drillTable(filteredRows().filter(r=>r.method===m&&r.cycleTime!==null),['id','title','buyer','prReceived','poDate','cycleTime'])); }
-  }});
 
   // Chart 2: Monthly savings bar + average line
   const labels=kpi2.monthly.map(m=>{
@@ -822,13 +805,13 @@ makePills('pills-year',  DASHBOARD_DATA.years,  'year');
 makePills('pills-buyer', DASHBOARD_DATA.buyers, 'buyer');
 initMcd('mcd-method',  DASHBOARD_DATA.methods,  'methods',  'All Methods');
 initMcd('mcd-project', DASHBOARD_DATA.projects, 'projects', 'All Projects');
-// KPI 1 method filter (local to trend chart only)
+// KPI 1 method filter – multi-select (local to trend chart only)
 (function(){
   const wrap=document.getElementById('pills-kpi1method');
   const all=document.createElement('button');
   all.className='pill on'; all.textContent='All';
   all.onclick=()=>{
-    kpi1MethodSel='';
+    kpi1MethodSel.clear();
     wrap.querySelectorAll('.pill').forEach(p=>p.classList.remove('on'));
     all.classList.add('on');
     if(lastKpi1Trend) renderCycleTrend(lastKpi1Trend);
@@ -838,9 +821,12 @@ initMcd('mcd-project', DASHBOARD_DATA.projects, 'projects', 'All Projects');
     const p=document.createElement('button');
     p.className='pill'; p.textContent=method;
     p.onclick=()=>{
-      kpi1MethodSel=method;
-      wrap.querySelectorAll('.pill').forEach(p2=>p2.classList.remove('on'));
-      p.classList.add('on');
+      const wasOn=kpi1MethodSel.has(method);
+      if(wasOn) kpi1MethodSel.delete(method);
+      else kpi1MethodSel.add(method);
+      p.classList.toggle('on',!wasOn);
+      if(kpi1MethodSel.size===0) all.classList.add('on');
+      else all.classList.remove('on');
       if(lastKpi1Trend) renderCycleTrend(lastKpi1Trend);
     };
     wrap.appendChild(p);
