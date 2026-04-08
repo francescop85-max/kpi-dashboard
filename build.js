@@ -271,7 +271,7 @@ function computeKPIs(rows) {
       count: times.length,
       color: avg <= 30 ? '#4CAF50' : avg <= 90 ? '#FF9800' : '#F44336',
     };
-  }).sort((a, b) => b.count - a.count);
+  }).sort((a, b) => b.avg - a.avg);
 
   // Overall cycle time stats
   const allCycles = rows.filter(r => r.cycleTime !== null && r.cycleTime >= 0).map(r => r.cycleTime);
@@ -339,17 +339,44 @@ function computeKPIs(rows) {
   }
   const kpi4 = { planCounts, planValues };
 
-  // ── KPI 5: Buyer Workload ─────────────────────────────────────────────────
-  const buyerMap = {};
+  // ── KPI 5: Team Workload vs Target ────────────────────────────────────────
+  const WL_TARGET = 15;
+  const WL_EXCL = new Set(['Francesco Perini', 'Adrian Horvath', 'Weng', 'Unknown']);
+  const wlExcluded = b => WL_EXCL.has(b) || /weng/i.test(b);
+
+  const wlMoMap = {};
   for (const r of rows) {
     const b = r.buyer || 'Unknown';
-    if (!buyerMap[b]) buyerMap[b] = { count: 0, value: 0 };
-    buyerMap[b].count++;
-    if (r.prValue) buyerMap[b].value += r.prValue;
+    if (wlExcluded(b)) continue;
+    const d = r.prReceived;
+    if (!d) continue;
+    const mo = fmtDate(d).slice(0, 7);
+    if (!wlMoMap[mo]) wlMoMap[mo] = {};
+    wlMoMap[mo][b] = (wlMoMap[mo][b] || 0) + 1;
   }
-  const kpi5 = Object.entries(buyerMap)
-    .map(([buyer, d]) => ({ buyer, ...d }))
-    .sort((a, b) => b.count - a.count);
+  const wlMonthly = Object.entries(wlMoMap)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([month, bc]) => {
+      const nb = Object.keys(bc).length;
+      const tot = Object.values(bc).reduce((a, x) => a + x, 0);
+      return { month, avg: nb ? parseFloat((tot / nb).toFixed(1)) : 0, numBuyers: nb, total: tot };
+    });
+
+  const CLOSED_RE = /closed|cancelled|po.issued/i;
+  const activeBM = {};
+  for (const r of rows) {
+    const b = r.buyer || 'Unknown';
+    if (wlExcluded(b) || CLOSED_RE.test(r.stage || '')) continue;
+    activeBM[b] = (activeBM[b] || 0) + 1;
+  }
+  const nActive = Object.keys(activeBM).length || 1;
+  const totalActive = Object.values(activeBM).reduce((a, x) => a + x, 0);
+  const kpi5 = {
+    wlMonthly, currentAvg: parseFloat((totalActive / nActive).toFixed(1)),
+    numActiveBuyers: nActive, totalActive,
+    monthsOver: wlMonthly.filter(m => m.avg > WL_TARGET).length,
+    wlTarget: WL_TARGET, activeBuyerMap: activeBM,
+  };
 
   // ── KPI 6: PR Assigned → Solicitation Issued ─────────────────────────────
   const assignToSolByMethod = {};
@@ -363,7 +390,7 @@ function computeKPIs(rows) {
   const kpi6 = Object.entries(assignToSolByMethod).map(([method, times]) => {
     const avg = Math.round(times.reduce((a, b) => a + b, 0) / times.length);
     return { method, avg, count: times.length };
-  }).sort((a, b) => b.count - a.count);
+  }).sort((a, b) => b.avg - a.avg);
   const allA2S = Object.values(assignToSolByMethod).flat();
   const avgAssignToSol = allA2S.length
     ? Math.round(allA2S.reduce((a, b) => a + b, 0) / allA2S.length)
@@ -396,8 +423,9 @@ function computeKPIs(rows) {
   // ── Year list ─────────────────────────────────────────────────────────────
   const years = [...new Set(rows.map(r => r.year).filter(Boolean))].sort();
 
-  // ── Buyer list ────────────────────────────────────────────────────────────
-  const buyers = [...new Set(rows.map(r => r.buyer).filter(Boolean))].sort();
+  // ── Buyer list (exclude admin/mgmt names from filter) ─────────────────────
+  const BUYER_FILTER_EXCL = /perini|horvath|weng/i;
+  const buyers = [...new Set(rows.map(r => r.buyer).filter(b => b && !BUYER_FILTER_EXCL.test(b)))].sort();
 
   // ── Stage list ────────────────────────────────────────────────────────────
   const stages = [...new Set(rows.map(r => r.stage).filter(Boolean))].sort();
@@ -449,6 +477,7 @@ function generateHTML(data) {
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>FAO Ukraine – Procurement KPI Dashboard</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js" crossorigin="anonymous"><\/script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js" crossorigin="anonymous"><\/script>
   <style>
     :root {
       --bg:#f1f5f9; --card:#fff; --text:#1a2e44; --muted:#64748b;
@@ -538,20 +567,17 @@ function generateHTML(data) {
     .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;}
     .full{grid-column:1/-1;}
     .chart-card{background:var(--card);border-radius:12px;padding:18px 20px;box-shadow:var(--shadow);position:relative;}
-    .chart-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:14px;}
+    .chart-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:10px;}
+    .kpi-desc{font-size:11.5px;color:#475569;line-height:1.5;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid #e2e8f0;}
+    [data-theme="dark"] .kpi-desc{color:#94a3b8;border-bottom-color:#334155;}
+    .disclaimer{font-size:10.5px;color:#64748b;line-height:1.55;font-style:italic;background:#f8fafc;border:1px solid #e2e8f0;border-left:3px solid #94a3b8;padding:7px 10px;border-radius:4px;margin-top:12px;}
+    [data-theme="dark"] .disclaimer{background:#1e293b;color:#94a3b8;border-color:#334155;border-left-color:#64748b;}
     .export-btn{position:absolute;top:12px;right:12px;font-size:10px;padding:2px 8px;background:rgba(0,159,218,.1);border:1px solid #009FDA;color:#009FDA;border-radius:4px;cursor:pointer;font-family:inherit;}
     .export-btn:hover{background:rgba(0,159,218,.25);}
     canvas{max-height:300px;}
 
     /* ── Buyer workload cards ── */
-    .buyer-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px;}
-    .buyer-card{background:var(--card);border-radius:10px;padding:14px 16px;box-shadow:var(--shadow);cursor:pointer;transition:transform .12s;}
-    .buyer-card:hover{transform:translateY(-2px);}
-    .buyer-name{font-weight:700;font-size:13px;color:var(--navy);margin-bottom:8px;}
-    [data-theme="dark"] .buyer-name{color:var(--blue);}
-    .buyer-bar-bg{background:var(--border);border-radius:4px;height:5px;overflow:hidden;margin:5px 0;}
-    .buyer-bar-fg{height:5px;border-radius:4px;background:var(--blue);}
-    .buyer-stats{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);}
+    #workload-summary [data-theme="dark"] div[style*="--navy"]{color:var(--blue);}
 
     /* ── Modal ── */
     #modal-ov{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:100;align-items:center;justify-content:center;}
@@ -566,10 +592,21 @@ function generateHTML(data) {
     table.drill tr:hover td{background:rgba(0,159,218,.06);}
     footer{text-align:center;font-size:11px;color:var(--muted);padding:20px;border-top:1px solid var(--border);margin-top:8px;}
 
+    .print-btn{padding:5px 14px;font-size:12px;font-weight:600;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.4);color:#fff;border-radius:6px;cursor:pointer;font-family:inherit;transition:background .15s;}
+    .print-btn:hover{background:rgba(255,255,255,.28);}
+
     @media(max-width:768px){
       .kpi-row{grid-template-columns:1fr 1fr;}
       .grid2{grid-template-columns:1fr;}
       .full{grid-column:auto;}
+    }
+    @media print{
+      .filter-bar,.export-btn,.print-btn,.toggle-wrap,#modal-ov{display:none!important;}
+      .hdr{background:#003366!important;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+      .content{padding:10px;}
+      canvas{max-height:220px!important;}
+      .grid2{gap:10px;}
+      body{background:#fff;}
     }
   </style>
 </head>
@@ -583,12 +620,15 @@ function generateHTML(data) {
       <div class="hdr-sub">Food and Agriculture Organization of the United Nations · Last updated: <span id="last-updated"></span></div>
     </div>
   </div>
-  <label class="toggle-wrap" title="Toggle dark mode">
-    <span style="font-size:13px;">☀️</span>
-    <input type="checkbox" id="theme-chk"/>
-    <div class="toggle-track"></div>
-    <span style="font-size:13px;">🌙</span>
-  </label>
+  <div style="display:flex;align-items:center;gap:12px;">
+    <button class="print-btn" onclick="window.print()">🖨️ Print / PDF</button>
+    <label class="toggle-wrap" title="Toggle dark mode">
+      <span style="font-size:13px;">☀️</span>
+      <input type="checkbox" id="theme-chk"/>
+      <div class="toggle-track"></div>
+      <span style="font-size:13px;">🌙</span>
+    </label>
+  </div>
 </header>
 
 <!-- ── FILTER BAR ── -->
@@ -631,47 +671,63 @@ function generateHTML(data) {
   <!-- KPI summary strip -->
   <div class="kpi-row" id="kpi-row"></div>
 
-  <!-- Charts row 1: Cycle Time + Competitive -->
+  <!-- KPI 1: Cycle Time (full width) -->
   <div class="grid2">
-    <div class="chart-card">
+    <div class="chart-card full">
       <button class="export-btn" onclick="exportChart('chart-cycle')">PNG</button>
       <div class="chart-title">KPI 1 – Avg Cycle Time by Method (days)</div>
+      <div class="kpi-desc">Measures the average number of calendar days from the date a Purchase Request (PR) is received to the date the Purchase Order (PO) is issued, broken down by solicitation method. A lower value indicates faster procurement execution.</div>
       <canvas id="chart-cycle"></canvas>
-    </div>
-    <div class="chart-card">
-      <button class="export-btn" onclick="exportChart('chart-comp')">PNG</button>
-      <div class="chart-title">KPI 3 – Competitive vs Direct</div>
-      <canvas id="chart-comp"></canvas>
+      <div class="disclaimer">&#9432; Some PRs are approved with a symbolic value ahead of project activation to allow advance tendering. This may inflate the PR→PO cycle time where the project was not yet operationally active in the system at PR creation.</div>
     </div>
   </div>
 
-  <!-- Charts row 2: Savings over time (full width) -->
+  <!-- KPI 2: Savings over time (full width) -->
   <div class="grid2">
     <div class="chart-card full">
       <button class="export-btn" onclick="exportChart('chart-savings')">PNG</button>
       <div class="chart-title">KPI 2 – Savings per Month (USD) with Average</div>
+      <div class="kpi-desc">Tracks the cumulative procurement savings achieved each month, calculated as the difference between the estimated PR value and the final PO value. Positive figures indicate money saved against the initial budget estimate.</div>
       <canvas id="chart-savings"></canvas>
+      <div class="disclaimer">&#9432; Savings are calculated as the gap between the requisitioner's estimated value and the final contracted amount. This assumes the original estimate was realistic and market-facing. Where estimates were conservative or inflated, the savings figure may not reflect actual market efficiency.</div>
     </div>
   </div>
 
-  <!-- Charts row 3: Plan Compliance + Buyer Workload -->
-  <div class="grid2" style="margin-bottom:16px;">
+  <!-- KPI 3 + KPI 4 side by side -->
+  <div class="grid2">
+    <div class="chart-card">
+      <button class="export-btn" onclick="exportChart('chart-comp')">PNG</button>
+      <div class="chart-title">KPI 3 – Competitive vs Direct</div>
+      <div class="kpi-desc">Shows the proportion of PRs awarded through competitive solicitation (open tender, RFQ, ITB, RFP, etc.) versus direct procurement. Excludes unclassified records from the competitive % headline figure.</div>
+      <canvas id="chart-comp"></canvas>
+      <div class="disclaimer">&#9432; <strong>Other</strong> includes PRs where the solicitation method does not map to a competitive or direct procurement category — typically older records created before the Award Basis field was introduced, or methods not yet classified in the system.</div>
+    </div>
     <div class="chart-card">
       <button class="export-btn" onclick="exportChart('chart-plan')">PNG</button>
       <div class="chart-title">KPI 4 – Plan Compliance</div>
+      <div class="kpi-desc">Tracks whether each PR was anticipated in FAO's procurement planning module. A higher share of planned PRs reflects stronger forecasting and budget discipline.</div>
       <canvas id="chart-plan"></canvas>
-    </div>
-    <div class="chart-card">
-      <div class="chart-title">KPI 5 – Buyer Workload</div>
-      <div class="buyer-grid" id="buyer-grid"></div>
+      <div class="disclaimer">&#9432; Each PR is reviewed against FAO's procurement planning module and categorised as <strong>Planned</strong> (included in the approved plan), <strong>Unplanned</strong> (not anticipated), or <strong>N/A</strong> — for procurement activities that could not reasonably have been foreseen in advance, or for which a planning system was not available at the time.</div>
     </div>
   </div>
 
-  <!-- KPI 6: Prep Time -->
+  <!-- KPI 5: Team Workload (full width) -->
+  <div class="grid2">
+    <div class="chart-card full">
+      <button class="export-btn" onclick="exportChart('chart-workload')">PNG</button>
+      <div class="chart-title">KPI 5 – Team Workload vs Target (15 PRs / buyer)</div>
+      <div class="kpi-desc">Monitors the average number of active Purchase Requests managed per procurement officer over time, compared to a standard workload target of 15 PRs per buyer. Bars in red indicate quarters where the team average exceeded the target — a key indicator for staffing adequacy.</div>
+      <div id="workload-summary"></div>
+      <canvas id="chart-workload"></canvas>
+    </div>
+  </div>
+
+  <!-- KPI 6: Prep Time (full width) -->
   <div class="grid2">
     <div class="chart-card full">
       <button class="export-btn" onclick="exportChart('chart-a2s')">PNG</button>
       <div class="chart-title">KPI 6 – Avg Prep Time: PR Assigned → Solicitation Issued (days)</div>
+      <div class="kpi-desc">Measures the average number of calendar days between the date a PR is assigned to a procurement officer and the date the solicitation document is issued to the market. This reflects the internal preparation efficiency of the procurement team.</div>
       <canvas id="chart-a2s"></canvas>
     </div>
   </div>
@@ -692,8 +748,14 @@ function generateHTML(data) {
 <script>
 const DASHBOARD_DATA = ${dataJson};
 
+// ── Plugin setup ───────────────────────────────────────────────────
+Chart.register(ChartDataLabels);
+Chart.defaults.set('plugins.datalabels', { display: false });
+
 // ── State ──────────────────────────────────────────────────────────
 let AF = { year: '', buyer: '', methods: new Set(), projects: new Set() };
+const WL_EXCL_C = new Set(['Francesco Perini', 'Adrian Horvath', 'Weng', 'Unknown']);
+const wlExclC = b => WL_EXCL_C.has(b) || /weng/i.test(b);
 const CR = {};
 
 // ── Helpers ────────────────────────────────────────────────────────
@@ -706,7 +768,7 @@ function tc(){ return isDark()?'#94a3b8':'#64748b'; }
 // ── Filter rows ────────────────────────────────────────────────────
 function filteredRows() {
   return DASHBOARD_DATA.rows.filter(r => {
-    if (AF.year   && String(r.year) !== AF.year)   return false;
+    if (AF.year   && String(r.year) !== String(AF.year))   return false;
     if (AF.buyer  && r.buyer !== AF.buyer)          return false;
     if (AF.methods.size  && !AF.methods.has(r.method || ''))  return false;
     if (AF.projects.size) {
@@ -730,7 +792,7 @@ function recompute(rows){
   const kpi1=Object.entries(cm).map(([method,t])=>{
     const avg=Math.round(t.reduce((a,b)=>a+b,0)/t.length);
     return{method,avg,count:t.length};
-  }).sort((a,b)=>b.count-a.count);
+  }).sort((a,b)=>b.avg-a.avg);
   const allC=rows.filter(r=>r.cycleTime!==null&&r.cycleTime>=0).map(r=>r.cycleTime);
   const avgCycle=allC.length?Math.round(allC.reduce((a,b)=>a+b,0)/allC.length):0;
 
@@ -763,10 +825,23 @@ function recompute(rows){
   for(const r of rows){ pc[r.planBucket]++; if(r.prValue)pv[r.planBucket]+=r.prValue; }
   const kpi4={planCounts:pc,planValues:pv};
 
-  // KPI 5
-  const bm={};
-  for(const r of rows){ const b=r.buyer||'Unknown'; if(!bm[b])bm[b]={count:0,value:0}; bm[b].count++; if(r.prValue)bm[b].value+=r.prValue; }
-  const kpi5=Object.entries(bm).map(([buyer,d])=>({buyer,...d})).sort((a,b)=>b.count-a.count);
+  // KPI 5: Team Workload
+  const wlMoMapC={};
+  for(const r of rows){
+    const b=r.buyer||'Unknown'; if(wlExclC(b))continue;
+    const d=r.prReceived; if(!d)continue;
+    const mo=d.slice(0,7);
+    if(!wlMoMapC[mo])wlMoMapC[mo]={};
+    wlMoMapC[mo][b]=(wlMoMapC[mo][b]||0)+1;
+  }
+  const wlMonthlyC=Object.entries(wlMoMapC).sort(([a],[b])=>a.localeCompare(b))
+    .map(([month,bc])=>{ const nb=Object.keys(bc).length; const tot=Object.values(bc).reduce((a,x)=>a+x,0); return{month,avg:nb?parseFloat((tot/nb).toFixed(1)):0,numBuyers:nb,total:tot}; });
+  const CLOSED_REC=/closed|cancelled|po.issued/i;
+  const aBMC={};
+  for(const r of rows){ const b=r.buyer||'Unknown'; if(wlExclC(b)||CLOSED_REC.test(r.stage||''))continue; aBMC[b]=(aBMC[b]||0)+1; }
+  const nActC=Object.keys(aBMC).length||1;
+  const totActC=Object.values(aBMC).reduce((a,x)=>a+x,0);
+  const kpi5={wlMonthly:wlMonthlyC,currentAvg:parseFloat((totActC/nActC).toFixed(1)),numActiveBuyers:nActC,totalActive:totActC,monthsOver:wlMonthlyC.filter(m=>m.avg>15).length,wlTarget:15,activeBuyerMap:aBMC};
 
   // Pipeline
   const pm={};
@@ -783,7 +858,7 @@ function recompute(rows){
     if(days<0) continue;
     const m=r.method||'Unknown'; if(!a2sm[m]) a2sm[m]=[]; a2sm[m].push(days);
   }
-  const kpi6=Object.entries(a2sm).map(([method,t])=>({method,avg:Math.round(t.reduce((a,b)=>a+b,0)/t.length),count:t.length})).sort((a,b)=>b.count-a.count);
+  const kpi6=Object.entries(a2sm).map(([method,t])=>({method,avg:Math.round(t.reduce((a,b)=>a+b,0)/t.length),count:t.length})).sort((a,b)=>b.avg-a.avg);
   const avgA2S=Object.values(a2sm).flat().reduce((s,v,_,arr)=>s+v/arr.length,0)|0;
 
   return{kpi1,kpi2,kpi3,kpi4,kpi5,pipeline,avgCycle,kpi6,avgAssignToSol:avgA2S};
@@ -793,8 +868,10 @@ function recompute(rows){
 function renderCards(K, total) {
   const { kpi1, kpi2, kpi3, kpi4, avgCycle, kpi6, avgAssignToSol } = K;
   const compTotal = kpi3.compCount + kpi3.dirCount + kpi3.otherCount;
-  const compPct = compTotal ? Math.round(100 * kpi3.compCount / compTotal) : 0;
-  const dirPct  = compTotal ? Math.round(100 * kpi3.dirCount  / compTotal) : 0;
+  // Exclude unclassified (Other) from the competitive % — those records pre-date the Award Basis field
+  const compBase = kpi3.compCount + kpi3.dirCount;
+  const compPct = compBase ? Math.round(100 * kpi3.compCount / compBase) : 0;
+  const dirPct  = compBase ? Math.round(100 * kpi3.dirCount  / compBase) : 0;
 
   const target = 60; const cycDiff = avgCycle - target;
   const fastestM = [...kpi1].sort((a,b)=>a.avg-b.avg)[0];
@@ -805,38 +882,79 @@ function renderCards(K, total) {
     cycDiff>0 ? \`\${cycDiff}d above the \${target}-day benchmark.\${fastestM?' Fastest: '+fastestM.method+' ('+fastestM.avg+'d).':''}\`
               : \`Within target — \${Math.abs(cycDiff)}d below the \${target}-day benchmark.\${fastestM?' Fastest: '+fastestM.method+' ('+fastestM.avg+'d).':''}\`,
     \`\${fmtUSD(kpi2.sumPos)} positive, \${fmtUSD(Math.abs(kpi2.sumNeg))} negative. Avg monthly: \${fmtUSD(kpi2.avgMonthly)}.\`,
-    compPct>=compTarget ? \`\${compPct}% competitive (target \${compTarget}%). Direct procurement: \${dirPct}% (\${kpi3.dirCount} PRs, \${fmtUSD(kpi3.dirValue)}).\`
-                        : \`\${compPct}% competitive — below \${compTarget}% target. Direct: \${dirPct}% (\${kpi3.dirCount} PRs). \${kpi3.otherCount} unclassified.\`,
+    compPct>=compTarget ? \`\${compPct}% competitive (target \${compTarget}%, excl. \${kpi3.otherCount} unclassified). Direct: \${dirPct}% (\${kpi3.dirCount} PRs, \${fmtUSD(kpi3.dirValue)}).\`
+                        : \`\${compPct}% competitive — below \${compTarget}% target (excl. \${kpi3.otherCount} unclassified). Direct: \${dirPct}% (\${kpi3.dirCount} PRs).\`,
     avgAssignToSol > 0 ? \`Avg \${avgAssignToSol} days from PR assignment to solicitation launch.\${kpi6[0]?' Slowest: '+kpi6.slice(-1)[0].method+' ('+kpi6.slice(-1)[0].avg+'d).':''}\`
                        : 'No data available for this period.',
   ];
 
-  const cols = ['var(--navy)','var(--blue)','var(--blue)','var(--navy)','var(--navy)'];
+  // Status colours: red = target missed, amber = borderline, blue/navy = on target
+  const cycCol = avgCycle > target ? (avgCycle > target * 1.25 ? 'var(--red)' : 'var(--amber)') : 'var(--blue)';
+  const savCol = kpi2.net < 0 ? 'var(--red)' : kpi2.net === 0 ? 'var(--amber)' : 'var(--blue)';
+  const cmpCol = compPct < 60 ? 'var(--red)' : compPct < compTarget ? 'var(--amber)' : 'var(--blue)';
+  const prepCol = avgAssignToSol > 45 ? 'var(--red)' : avgAssignToSol > 30 ? 'var(--amber)' : 'var(--blue)';
+  const bgOf = col => col==='var(--red)'?'rgba(239,68,68,.07)':col==='var(--amber)'?'rgba(245,158,11,.07)':'';
   const cards = [
-    { lbl:'Total PRs',       val:fmt(total),           sub:'in selection' },
-    { lbl:'Avg Cycle Time',  val:avgCycle+'d',          sub:'PR → PO issuance' },
-    { lbl:'Net Savings',     val:fmtUSD(kpi2.net),     sub:'vs estimated value' },
-    { lbl:'Competitive',     val:compPct+'%',           sub:fmt(kpi3.compCount)+' of '+fmt(compTotal)+' PRs' },
-    { lbl:'Avg Prep Time',   val:avgAssignToSol+'d',    sub:'PR assigned → solicitation' },
+    { lbl:'Total PRs',       val:fmt(total),           sub:'in selection',                  col:'var(--navy)' },
+    { lbl:'Avg Cycle Time',  val:avgCycle+'d',          sub:\`target \${target}d\`,             col:cycCol },
+    { lbl:'Net Savings',     val:fmtUSD(kpi2.net),     sub:'vs estimated value',             col:savCol },
+    { lbl:'Competitive',     val:compPct+'%',           sub:fmt(kpi3.compCount)+' of '+fmt(compBase)+' classified PRs', col:cmpCol },
+    { lbl:'Avg Prep Time',   val:avgAssignToSol+'d',    sub:'PR assigned → solicitation',    col:prepCol },
   ];
   document.getElementById('kpi-row').innerHTML = cards.map((c,i) => \`
-    <div class="kpi-card" style="border-left-color:\${cols[i]}">
+    <div class="kpi-card" style="border-left-color:\${c.col};\${bgOf(c.col)?'background:'+bgOf(c.col)+';':''}">
       <div class="kpi-lbl">\${c.lbl}</div>
-      <div class="kpi-val" style="color:\${cols[i]}">\${c.val}</div>
+      <div class="kpi-val" style="color:\${c.col}">\${c.val}</div>
       <div class="kpi-sub">\${c.sub}</div>
       <div class="kpi-narrative">\${narr[i]}</div>
     </div>\`).join('');
 }
 
-// ── Buyer workload cards ───────────────────────────────────────────
-function renderBuyers(kpi5){
-  const maxC=kpi5[0]?.count||1;
-  document.getElementById('buyer-grid').innerHTML=kpi5.map(b=>\`
-    <div class="buyer-card" onclick="openBuyerDrill('\${b.buyer.replace(/'/g,"\\\\'")}')">
-      <div class="buyer-name">\${b.buyer}</div>
-      <div class="buyer-bar-bg"><div class="buyer-bar-fg" style="width:\${Math.round(100*b.count/maxC)}%"></div></div>
-      <div class="buyer-stats"><span>\${b.count} PRs</span><span>\${fmtUSD(b.value)}</span></div>
-    </div>\`).join('');
+// ── Team workload chart ────────────────────────────────────────────
+function renderWorkload(kpi5){
+  const{wlMonthly,currentAvg,numActiveBuyers,monthsOver,wlTarget}=kpi5;
+  const clr=currentAvg>wlTarget?'var(--red)':currentAvg>wlTarget*0.8?'var(--amber)':'var(--green)';
+  document.getElementById('workload-summary').innerHTML=\`
+    <div style="display:flex;gap:20px;flex-wrap:wrap;margin-bottom:8px;align-items:flex-end;">
+      <div style="text-align:center;">
+        <div style="font-size:28px;font-weight:800;color:\${clr};line-height:1">\${currentAvg}</div>
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-top:2px">PRs/buyer (active)</div>
+      </div>
+      <div style="text-align:center;">
+        <div style="font-size:28px;font-weight:800;color:var(--muted);line-height:1">\${wlTarget}</div>
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-top:2px">Standard target</div>
+      </div>
+      <div style="text-align:center;">
+        <div style="font-size:28px;font-weight:800;color:var(--amber);line-height:1">\${monthsOver}</div>
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-top:2px">Months over target</div>
+      </div>
+      <div style="text-align:center;">
+        <div style="font-size:28px;font-weight:800;color:var(--navy);line-height:1">\${numActiveBuyers}</div>
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-top:2px">Active buyers</div>
+      </div>
+    </div>\`;
+  // Aggregate monthly → quarterly
+  const qMap={};
+  wlMonthly.forEach(m=>{
+    const[y,mo]=m.month.split('-');
+    const q=\`\${y} Q\${Math.ceil(+mo/3)}\`;
+    if(!qMap[q])qMap[q]={total:0,buyers:0,months:0};
+    qMap[q].total+=m.total; qMap[q].buyers+=m.numBuyers; qMap[q].months++;
+  });
+  const wlQ=Object.entries(qMap).map(([q,d])=>({q,avg:d.months?parseFloat((d.total/(d.buyers/d.months)).toFixed(1)):0,numBuyers:Math.round(d.buyers/d.months)}));
+  mou('chart-workload',{type:'bar',data:{
+    labels:wlQ.map(d=>d.q),
+    datasets:[
+      {type:'bar',label:'Avg PRs/buyer',data:wlQ.map(d=>d.avg),
+       backgroundColor:wlQ.map(d=>d.avg>wlTarget?'rgba(239,68,68,.75)':'rgba(0,128,198,.65)'),borderRadius:3,order:2},
+      {type:'line',label:\`Target (\${wlTarget})\`,data:wlQ.map(()=>wlTarget),
+       borderColor:'#f59e0b',borderWidth:2,borderDash:[6,4],pointRadius:0,fill:false,order:1,tension:0},
+    ]
+  },options:{responsive:true,plugins:{legend:{labels:{color:tc()}},
+    tooltip:{callbacks:{label:ctx=>ctx.dataset.type==='bar'?\` \${ctx.parsed.y} PRs/buyer (~\${wlQ[ctx.dataIndex].numBuyers} buyers)\`:\` Target: \${wlTarget}\`}}},
+    scales:{x:{grid:{color:gc()},ticks:{color:tc()}},
+            y:{grid:{color:gc()},ticks:{color:tc()},title:{display:true,text:'Avg PRs / buyer',color:tc()},suggestedMin:0}},
+  }});
 }
 
 // ── Chart helpers ─────────────────────────────────────────────────
@@ -849,11 +967,12 @@ function mou(id,cfg){
 function renderCharts(K){
   const{kpi1,kpi2,kpi3,kpi4,kpi6,pipeline}=K;
 
-  // Chart 1: Cycle time horizontal bar (blue palette, single color)
+  // Chart 1: Cycle time horizontal bar — descending by avg, with day labels
   mou('chart-cycle',{type:'bar',data:{
     labels:kpi1.map(d=>d.method),
     datasets:[{label:'Avg days',data:kpi1.map(d=>d.avg),backgroundColor:'#4da6d9',borderRadius:4}]
   },options:{indexAxis:'y',responsive:true,plugins:{legend:{display:false},
+    datalabels:{display:true,anchor:'end',align:'end',color:tc(),font:{size:11,weight:'600'},formatter:v=>\`\${v}d\`},
     tooltip:{callbacks:{label:ctx=>\` \${ctx.parsed.x}d (n=\${kpi1[ctx.dataIndex].count})\`}}},
     scales:{x:{grid:{color:gc()},ticks:{color:tc()},title:{display:true,text:'Days',color:tc()}},y:{grid:{display:false},ticks:{color:tc()}}},
     onClick:(_e,el)=>{ if(!el.length)return; const m=kpi1[el[0].index].method;
@@ -883,17 +1002,28 @@ function renderCharts(K){
   }});
 
   // Chart 3: Competitive vs Direct vs Other — 3-slice doughnut
+  const c3Labels=['Competitive','Direct Procurement','Other'];
+  const c3Tot=kpi3.compCount+kpi3.dirCount+kpi3.otherCount;
   mou('chart-comp',{type:'doughnut',data:{
-    labels:['Competitive','Direct Procurement','Other'],
+    labels:c3Labels,
     datasets:[{data:[kpi3.compCount,kpi3.dirCount,kpi3.otherCount],
       backgroundColor:['#003366','#009FDA','#9ecae1'],hoverOffset:6}]
   },options:{responsive:true,plugins:{legend:{position:'bottom',labels:{color:tc()}},
     tooltip:{callbacks:{label:ctx=>{
       const vals=[kpi3.compValue,kpi3.dirValue,kpi3.otherValue];
-      const tot=kpi3.compCount+kpi3.dirCount+kpi3.otherCount;
-      const pct=tot?Math.round(100*ctx.parsed/tot):0;
+      const pct=c3Tot?Math.round(100*ctx.parsed/c3Tot):0;
       return \` \${ctx.parsed} PRs (\${pct}%) – \${fmtUSD(vals[ctx.dataIndex])}\`;
-    }}}},
+    }}},
+    datalabels:{
+      display:true,
+      color:'#fff',
+      font:{weight:'bold',size:12},
+      textAlign:'center',
+      formatter:(value,ctx)=>{
+        const pct=c3Tot?Math.round(100*value/c3Tot):0;
+        return pct>=5?\`\${c3Labels[ctx.dataIndex]}\\n\${pct}%\`:'';
+      }
+    }},
     onClick:(_e,el)=>{ if(!el.length)return;
       const cats=[r=>r.isCompetitive, r=>r.isDirect&&!r.isCompetitive, r=>!r.isCompetitive&&!r.isDirect];
       const lbls=['Competitive PRs','Direct Procurement PRs','Other PRs'];
@@ -902,17 +1032,28 @@ function renderCharts(K){
     }
   }});
 
-  // Chart 4: Plan compliance pie (blue palette)
+  // Chart 4: Plan compliance pie (blue palette) with in-slice labels
   const pLabels=['Planned','Unplanned','N/A'];
+  const pTot=pLabels.reduce((a,l)=>a+kpi4.planCounts[l],0);
   mou('chart-plan',{type:'pie',data:{
     labels:pLabels,
     datasets:[{data:pLabels.map(l=>kpi4.planCounts[l]),backgroundColor:['#003366','#c0392b','#9ecae1'],hoverOffset:6}]
-  },options:{responsive:true,plugins:{legend:{position:'bottom',labels:{color:tc()}},
+  },options:{responsive:true,plugins:{
+    legend:{position:'bottom',labels:{color:tc()}},
     tooltip:{callbacks:{label:ctx=>{
-      const tot=pLabels.reduce((a,l)=>a+kpi4.planCounts[l],0);
-      const pct=tot?Math.round(100*ctx.parsed/tot):0;
+      const pct=pTot?Math.round(100*ctx.parsed/pTot):0;
       return \` \${ctx.parsed} (\${pct}%) \u2013 \${fmtUSD(kpi4.planValues[pLabels[ctx.dataIndex]])}\`;
-    }}}},
+    }}},
+    datalabels:{
+      display:true,
+      color:'#fff',
+      font:{weight:'bold',size:12},
+      textAlign:'center',
+      formatter:(value,ctx)=>{
+        const pct=pTot?Math.round(100*value/pTot):0;
+        return pct>=5?\`\${pLabels[ctx.dataIndex]}\\n\${pct}%\`:'';
+      }
+    }},
     onClick:(_e,el)=>{ if(!el.length)return; const b=pLabels[el[0].index];
       openModal(\`Plan \u2013 \${b}\`,drillTable(filteredRows().filter(r=>r.planBucket===b),['id','title','buyer','method','prValue','stage'])); }
   }});
@@ -922,7 +1063,9 @@ function renderCharts(K){
     labels:kpi6.map(d=>d.method),
     datasets:[{label:'Avg days',data:kpi6.map(d=>d.avg),backgroundColor:'#0080c6',borderRadius:4}]
   },options:{indexAxis:'y',responsive:true,plugins:{legend:{display:false},
-    tooltip:{callbacks:{label:ctx=>\` \${ctx.parsed.x}d (n=\${kpi6[ctx.dataIndex].count})\`}}},
+    tooltip:{callbacks:{label:ctx=>\` \${ctx.parsed.x}d (n=\${kpi6[ctx.dataIndex].count})\`}},
+    datalabels:{display:true,anchor:'end',align:'end',color:tc(),font:{size:11,weight:'600'},
+      formatter:v=>\`\${v}d\`}},
     scales:{x:{grid:{color:gc()},ticks:{color:tc()},title:{display:true,text:'Days',color:tc()}},y:{grid:{display:false},ticks:{color:tc()}}},
     onClick:(_e,el)=>{ if(!el.length)return; const m=kpi6[el[0].index].method;
       openModal(\`Prep Time – \${m}\`,drillTable(filteredRows().filter(r=>r.method===m&&r.dateAssigned&&r.solIssued),['id','title','buyer','dateAssigned','solIssued','prReceived']));
@@ -1069,7 +1212,7 @@ function refresh(){
   const K=recompute(rows);
   renderCards(K,rows.length);
   renderCharts(K);
-  renderBuyers(K.kpi5);
+  renderWorkload(K.kpi5);
 }
 
 // ── Init ───────────────────────────────────────────────────────────
