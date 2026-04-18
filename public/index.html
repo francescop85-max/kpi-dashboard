@@ -404,6 +404,16 @@ function filteredRows() {
   });
 }
 
+// ── Delta badge helper ─────────────────────────────────────────────
+function deltaBadge(delta,goodUp,unit,fmtFn){
+  if(delta===null||delta===undefined||isNaN(delta)) return '';
+  const good=goodUp?delta>0:delta<0;
+  const col=delta===0?'#94a3b8':good?'#16a34a':'#dc2626';
+  const arrow=delta>0?'▲':delta<0?'▼':'→';
+  const absVal=fmtFn?fmtFn(Math.abs(delta)):Math.abs(Math.round(delta))+unit;
+  return '<div style="margin-top:4px;"><span style="display:inline-flex;align-items:center;gap:3px;font-size:10px;font-weight:700;color:'+col+';background:'+col+'18;padding:2px 7px;border-radius:20px;">'+arrow+' '+absVal+' vs prev mo</span></div>';
+}
+
 // ── Recompute KPIs client-side ─────────────────────────────────────
 function recompute(rows){
   // KPI 1
@@ -578,6 +588,24 @@ function renderCards(K, total) {
   const compTarget = 70;
   const PREP_CD = {'Formal Solicitation':10,'Informal Solicitation':7,'LTA':4};
 
+  // ── Month-over-month deltas ────────────────────────────────────────
+  const last2 = arr => arr&&arr.length>=2 ? [arr[arr.length-2],arr[arr.length-1]] : null;
+  // Total PRs delta: count by month
+  const prMM={};
+  filteredRows().forEach(r=>{const mo=(r.prReceived||r.poDate||'').slice(0,7);if(mo)prMM[mo]=(prMM[mo]||0)+1;});
+  const prMos=Object.keys(prMM).sort(); const pr2=last2(prMos);
+  const prDelta=pr2?prMM[pr2[1]]-prMM[pr2[0]]:null;
+  // Savings delta
+  const sav2=last2(kpi2.monthly); const savDelta=sav2?sav2[1].total-sav2[0].total:null;
+  // Competitive % delta
+  const cmp2=last2(K.kpi3Trend); const cmpDelta=cmp2?cmp2[1].compPct-cmp2[0].compPct:null;
+  // Cycle time delta (overall avg, lower=better)
+  const cyc2=last2(K.kpi1Trend&&K.kpi1Trend.data);
+  const cycDelta2=cyc2&&cyc2[0].avg&&cyc2[1].avg?cyc2[1].avg-cyc2[0].avg:null;
+  // Prep time delta (overall avg, lower=better)
+  const prp2=last2(K.kpi6Trend&&K.kpi6Trend.data);
+  const prpDelta=prp2&&prp2[0].avg&&prp2[1].avg?prp2[1].avg-prp2[0].avg:null;
+
   // Per-method cycle time breakdown rows (dashboard card)
   const cycBreakdown = kpi1.length ? kpi1.map(m => {
     const mc = m.avg > target ? (m.avg > target*1.25 ? 'var(--red)' : 'var(--amber)') : 'var(--blue)';
@@ -613,11 +641,11 @@ function renderCards(K, total) {
   const prepCol = 'var(--navy)';
   const bgOf = col => col==='var(--red)'?'rgba(239,68,68,.07)':col==='var(--amber)'?'rgba(245,158,11,.07)':'';
   const cards = [
-    { lbl:'Total PRs',       val:fmt(total),           sub:'in selection',                  col:'var(--navy)' },
-    { lbl:'Cycle Time',      breakdown:cycBreakdown,   sub:'by method',                     col:cycCol },
-    { lbl:'Net Savings',     val:fmtUSD(kpi2.net),     sub:'vs estimated value',             col:savCol },
-    { lbl:'Competitive',     val:compPct+'%',           sub:fmt(kpi3.compCount)+' of '+fmt(compBase)+' classified PRs', col:cmpCol },
-    { lbl:'Prep Time',       breakdown:prepBreakdown,  sub:'PR assigned → solicitation',    col:prepCol },
+    { lbl:'Total PRs',   val:fmt(total),        sub:'in selection',                                    col:'var(--navy)', delta:deltaBadge(prDelta,true,'') },
+    { lbl:'Cycle Time',  breakdown:cycBreakdown, sub:'by method',                                      col:cycCol,        delta:deltaBadge(cycDelta2,false,'d') },
+    { lbl:'Net Savings', val:fmtUSD(kpi2.net),  sub:'vs estimated value',                              col:savCol,        delta:deltaBadge(savDelta,true,'',v=>fmtUSD(v)) },
+    { lbl:'Competitive', val:compPct+'%',         sub:fmt(kpi3.compCount)+' of '+fmt(compBase)+' PRs', col:cmpCol,        delta:deltaBadge(cmpDelta,true,'pp') },
+    { lbl:'Prep Time',   breakdown:prepBreakdown, sub:'PR assigned → solicitation',                    col:prepCol,       delta:deltaBadge(prpDelta,false,'d') },
   ];
   document.getElementById('kpi-row').innerHTML = cards.map((c,i) => `
     <div class="kpi-card" style="border-left-color:${c.col};${bgOf(c.col)?'background:'+bgOf(c.col)+';':''}">
@@ -626,6 +654,7 @@ function renderCards(K, total) {
         ? '<div style="margin:4px 0 2px;">'+c.breakdown+'</div>'
         : '<div class="kpi-val" style="color:'+c.col+'">'+c.val+'</div><div class="kpi-sub">'+c.sub+'</div>'
       }
+      ${c.delta||''}
       <div class="kpi-narrative">${narr[i]}</div>
     </div>`).join('');
 }
