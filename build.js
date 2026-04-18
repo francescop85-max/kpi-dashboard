@@ -96,6 +96,27 @@ function parseCSV(text) {
   });
 }
 
+// ── Method consolidation ──────────────────────────────────────────────────────
+
+const EXCLUDED_METHODS = new Set([
+  'Call for Application (704)',
+  'EOI (502)',
+  'EOI (507)',
+  'Invitation for Proposal (507)',
+  'RFI (502)',
+  'Contract Amendment',
+  'Other',
+]);
+
+// Maps raw solicitation method → consolidated category (null = exclude row)
+function consolidateMethod(raw) {
+  if (!raw || EXCLUDED_METHODS.has(raw)) return null;
+  if (/LTA|UN Award/i.test(raw))               return 'LTA';
+  if (/\b(ITB|RFP|BAFO|RFQ)\b/i.test(raw))    return 'Formal Solicitation';
+  if (/micro purchase|direct|very low value|re-utilisation/i.test(raw)) return 'Informal Solicitation';
+  return null; // unmapped → exclude
+}
+
 // ── Field-type parsers ────────────────────────────────────────────────────────
 
 function parseLookup(raw) {
@@ -184,15 +205,19 @@ function loadData(csvPath) {
 
   return rows.map(r => {
     const buyer         = parseUser(r['Buyer']);
+
     const prValue       = parseFloat2(r['PRValue']);
     const cumulativePO  = parseFloat2(r['CumulativePO_x0024_']);
     const savings       = parseFloat2(r['Savings']);
-    const method        = parseLookup(r['SollicitationMethod']);
+    const rawMethod     = parseLookup(r['SollicitationMethod']);
+    const method        = consolidateMethod(rawMethod);
     const stage         = parseLookup(r['ProcurementStage']);
     const planRaw       = parseLookup(r['PartofProcurementPlan']);
     const awardBasis    = parseLookup(r['AwardBasis']);
     const marketCat     = parseMultiLookup(r['MarketCategory']);
     const projRef       = parseMultiLookup(r['ProjectReference']);
+
+    if (method === null) return null; // excluded method — drop row
 
     const prReceived    = parseDate(r['PRReceived']);
     const poDate        = parseDate(r['POIssuancedate']);
@@ -206,11 +231,9 @@ function loadData(csvPath) {
     const cycleTime     = dateDiffDays(prReceived, poDate);
     const year          = prReceived ? prReceived.getUTCFullYear() : (poDate ? poDate.getUTCFullYear() : null);
 
-    // Competitive vs Direct
-    const COMPETITIVE_METHODS = ['ITB', 'RFQ', 'RFP', 'BAFO', 'EOI'];
-    const methodUpper = (method || '').toUpperCase();
-    const isCompetitive = COMPETITIVE_METHODS.some(m => methodUpper.includes(m));
-    const isDirect = !isCompetitive && methodUpper.includes('DIRECT');
+    // Competitive vs Direct — based on consolidated category
+    const isCompetitive = method === 'Formal Solicitation';
+    const isDirect      = method === 'Informal Solicitation';
 
     // Plan compliance bucket
     let planBucket;
@@ -249,7 +272,7 @@ function loadData(csvPath) {
       poNumber: r['PO_x0023_'] || '',
       buyingUnit: parseLookup(r['BuyingUnit']),
     };
-  });
+  }).filter(Boolean);
 }
 
 // ── KPI computations ──────────────────────────────────────────────────────────
@@ -671,14 +694,17 @@ function generateHTML(data) {
   <!-- KPI summary strip -->
   <div class="kpi-row" id="kpi-row"></div>
 
-  <!-- KPI 1: Cycle Time (full width) -->
+  <!-- KPI 1 Trend: Cycle Time over Time -->
   <div class="grid2">
     <div class="chart-card full">
-      <button class="export-btn" onclick="exportChart('chart-cycle')">PNG</button>
-      <div class="chart-title">KPI 1 – Avg Cycle Time by Method (days)</div>
-      <div class="kpi-desc">Measures the average number of calendar days from the date a Purchase Request (PR) is received to the date the Purchase Order (PO) is issued, broken down by solicitation method. A lower value indicates faster procurement execution.</div>
-      <canvas id="chart-cycle"></canvas>
-      <div class="disclaimer">&#9432; Some PRs are approved with a symbolic value ahead of project activation to allow advance tendering. This may inflate the PR→PO cycle time where the project was not yet operationally active in the system at PR creation.</div>
+      <button class="export-btn" onclick="exportChart('chart-cycle-trend')">PNG</button>
+      <div class="chart-title">KPI 1 – Cycle Time Trend (avg days per month)</div>
+      <div class="kpi-desc">Shows how the average procurement cycle time (PR received to PO issued) evolves month by month. Points are colour-coded: <span style="color:#22c55e;font-weight:600">green ≤30d</span>, <span style="color:#f59e0b;font-weight:600">amber ≤90d</span>, <span style="color:#ef4444;font-weight:600">red &gt;90d</span>. Use the filter below to focus on a specific solicitation method.</div>
+      <div style="margin:8px 0 12px;">
+        <div class="filter-label" style="margin-bottom:5px;">Filter by Solicitation Method</div>
+        <div class="pills" id="pills-kpi1method"></div>
+      </div>
+      <canvas id="chart-cycle-trend"></canvas>
     </div>
   </div>
 
@@ -722,13 +748,17 @@ function generateHTML(data) {
     </div>
   </div>
 
-  <!-- KPI 6: Prep Time (full width) -->
+  <!-- KPI 6 Trend: Prep Time over Time -->
   <div class="grid2">
     <div class="chart-card full">
-      <button class="export-btn" onclick="exportChart('chart-a2s')">PNG</button>
-      <div class="chart-title">KPI 6 – Avg Prep Time: PR Assigned → Solicitation Issued (days)</div>
-      <div class="kpi-desc">Measures the average number of calendar days between the date a PR is assigned to a procurement officer and the date the solicitation document is issued to the market. This reflects the internal preparation efficiency of the procurement team.</div>
-      <canvas id="chart-a2s"></canvas>
+      <button class="export-btn" onclick="exportChart('chart-prep-trend')">PNG</button>
+      <div class="chart-title">KPI 6 – Prep Time Trend (avg days per month)</div>
+      <div class="kpi-desc">Shows how the average preparation time (PR assigned → solicitation issued) evolves month by month. Points are colour-coded: <span style="color:#22c55e;font-weight:600">green ≤30d</span>, <span style="color:#f59e0b;font-weight:600">amber ≤45d</span>, <span style="color:#ef4444;font-weight:600">red &gt;45d</span>. Use the filter below to focus on a specific solicitation method.</div>
+      <div style="margin:8px 0 12px;">
+        <div class="filter-label" style="margin-bottom:5px;">Filter by Solicitation Method</div>
+        <div class="pills" id="pills-kpi6method"></div>
+      </div>
+      <canvas id="chart-prep-trend"></canvas>
     </div>
   </div>
 
@@ -861,7 +891,49 @@ function recompute(rows){
   const kpi6=Object.entries(a2sm).map(([method,t])=>({method,avg:Math.round(t.reduce((a,b)=>a+b,0)/t.length),count:t.length})).sort((a,b)=>b.avg-a.avg);
   const avgA2S=Object.values(a2sm).flat().reduce((s,v,_,arr)=>s+v/arr.length,0)|0;
 
-  return{kpi1,kpi2,kpi3,kpi4,kpi5,pipeline,avgCycle,kpi6,avgAssignToSol:avgA2S};
+  // KPI 1 trend: monthly avg cycle time by method
+  const ctMap={};
+  for(const r of rows){
+    if(r.cycleTime===null||r.cycleTime<0||!r.prReceived) continue;
+    const month=r.prReceived.slice(0,7);
+    const m=r.method||'Unknown';
+    if(!ctMap[month]) ctMap[month]={};
+    if(!ctMap[month][m]) ctMap[month][m]={sum:0,count:0};
+    ctMap[month][m].sum+=r.cycleTime; ctMap[month][m].count++;
+  }
+  const ctMonths=Object.keys(ctMap).sort();
+  const kpi1Trend={
+    months:ctMonths,
+    data:ctMonths.map(month=>{
+      const bm={}; let ts=0,cnt=0;
+      for(const[m,d] of Object.entries(ctMap[month])){bm[m]=Math.round(d.sum/d.count);ts+=d.sum;cnt+=d.count;}
+      return{month,byMethod:bm,avg:cnt?Math.round(ts/cnt):null};
+    }),
+  };
+
+  // KPI 6 trend: monthly avg prep time (PR assigned → sol issued) by method
+  const ptMap={};
+  for(const r of rows){
+    if(!r.dateAssigned||!r.solIssued) continue;
+    const days=Math.round((new Date(r.solIssued)-new Date(r.dateAssigned))/86400000);
+    if(days<0) continue;
+    const month=r.dateAssigned.slice(0,7);
+    const m=r.method||'Unknown';
+    if(!ptMap[month]) ptMap[month]={};
+    if(!ptMap[month][m]) ptMap[month][m]={sum:0,count:0};
+    ptMap[month][m].sum+=days; ptMap[month][m].count++;
+  }
+  const ptMonths=Object.keys(ptMap).sort();
+  const kpi6Trend={
+    months:ptMonths,
+    data:ptMonths.map(month=>{
+      const bm={}; let ts=0,cnt=0;
+      for(const[m,d] of Object.entries(ptMap[month])){bm[m]=Math.round(d.sum/d.count);ts+=d.sum;cnt+=d.count;}
+      return{month,byMethod:bm,avg:cnt?Math.round(ts/cnt):null};
+    }),
+  };
+
+  return{kpi1,kpi2,kpi3,kpi4,kpi5,pipeline,avgCycle,kpi6,avgAssignToSol:avgA2S,kpi1Trend,kpi6Trend};
 }
 
 // ── KPI Cards ──────────────────────────────────────────────────────
@@ -963,21 +1035,96 @@ function mou(id,cfg){
   CR[id]=new Chart(document.getElementById(id).getContext('2d'),cfg);
 }
 
+// ── KPI 1 trend state ─────────────────────────────────────────────
+let lastKpi1Trend=null;
+let kpi1MethodSel=new Set();
+const KPI1_PALETTE=['#009FDA','#003366','#22c55e','#8b5cf6','#ec4899','#06b6d4','#84cc16','#f97316','#a16207','#0f766e'];
+
+function renderCycleTrend(trend){
+  if(!trend||!trend.months.length) return;
+  const methods=[...kpi1MethodSel];
+  const labels=trend.months.map(m=>{
+    const[y,mo]=m.split('-');
+    return new Date(+y,+mo-1).toLocaleString('en',{month:'short',year:'2-digit'});
+  });
+  let datasets;
+  if(!methods.length){
+    const pts=trend.data.map(d=>d.avg);
+    datasets=[{label:'All Methods (avg)',data:pts,
+      borderColor:'#009FDA',backgroundColor:'rgba(0,159,218,0.08)',
+      borderWidth:2,pointRadius:5,tension:0.3,spanGaps:true,fill:true,
+      pointBackgroundColor:pts.map(v=>v===null?'transparent':v<=30?'#22c55e':v<=90?'#f59e0b':'#ef4444'),
+      pointBorderColor:pts.map(v=>v===null?'transparent':v<=30?'#22c55e':v<=90?'#f59e0b':'#ef4444')}];
+  } else {
+    datasets=methods.map((method,i)=>{
+      const color=KPI1_PALETTE[i%KPI1_PALETTE.length];
+      const pts=trend.data.map(d=>d.byMethod[method]??null);
+      return{label:method,data:pts,borderColor:color,backgroundColor:color+'18',
+        borderWidth:2,pointRadius:4,tension:0.3,spanGaps:true,fill:false,
+        pointBackgroundColor:pts.map(v=>v===null?'transparent':v<=30?'#22c55e':v<=90?'#f59e0b':'#ef4444'),
+        pointBorderColor:pts.map(v=>v===null?'transparent':v<=30?'#22c55e':v<=90?'#f59e0b':'#ef4444')};
+    });
+  }
+  datasets.push({label:'Target (60d)',data:trend.months.map(()=>60),
+    borderColor:'#f59e0b',borderWidth:2,borderDash:[6,4],pointRadius:0,fill:false,tension:0});
+  mou('chart-cycle-trend',{type:'line',data:{labels,datasets},options:{responsive:true,plugins:{
+    legend:{labels:{color:tc()}},
+    datalabels:{display:false},
+    tooltip:{callbacks:{label:ctx=>ctx.parsed.y!==null?' '+Math.round(ctx.parsed.y)+'d':' No data'}},
+  },scales:{
+    x:{grid:{color:gc()},ticks:{color:tc(),maxRotation:45}},
+    y:{grid:{color:gc()},ticks:{color:tc(),callback:v=>v+'d'},
+       title:{display:true,text:'Avg Cycle Time (days)',color:tc()},suggestedMin:0},
+  }}});
+}
+
+// ── KPI 6 trend state ─────────────────────────────────────────────
+let lastKpi6Trend=null;
+let kpi6MethodSel=new Set();
+
+function renderPrepTrend(trend){
+  if(!trend||!trend.months.length) return;
+  const methods=[...kpi6MethodSel];
+  const labels=trend.months.map(m=>{
+    const[y,mo]=m.split('-');
+    return new Date(+y,+mo-1).toLocaleString('en',{month:'short',year:'2-digit'});
+  });
+  let datasets;
+  if(!methods.length){
+    const pts=trend.data.map(d=>d.avg);
+    datasets=[{label:'All Methods (avg)',data:pts,
+      borderColor:'#0080c6',backgroundColor:'rgba(0,128,198,0.08)',
+      borderWidth:2,pointRadius:5,tension:0.3,spanGaps:true,fill:true,
+      pointBackgroundColor:pts.map(v=>v===null?'transparent':v<=30?'#22c55e':v<=45?'#f59e0b':'#ef4444'),
+      pointBorderColor:pts.map(v=>v===null?'transparent':v<=30?'#22c55e':v<=45?'#f59e0b':'#ef4444')}];
+  } else {
+    datasets=methods.map((method,i)=>{
+      const color=KPI1_PALETTE[i%KPI1_PALETTE.length];
+      const pts=trend.data.map(d=>d.byMethod[method]??null);
+      return{label:method,data:pts,borderColor:color,backgroundColor:color+'18',
+        borderWidth:2,pointRadius:4,tension:0.3,spanGaps:true,fill:false,
+        pointBackgroundColor:pts.map(v=>v===null?'transparent':v<=30?'#22c55e':v<=45?'#f59e0b':'#ef4444'),
+        pointBorderColor:pts.map(v=>v===null?'transparent':v<=30?'#22c55e':v<=45?'#f59e0b':'#ef4444')};
+    });
+  }
+  datasets.push({label:'Target (30d)',data:trend.months.map(()=>30),
+    borderColor:'#f59e0b',borderWidth:2,borderDash:[6,4],pointRadius:0,fill:false,tension:0});
+  mou('chart-prep-trend',{type:'line',data:{labels,datasets},options:{responsive:true,plugins:{
+    legend:{labels:{color:tc()}},
+    datalabels:{display:false},
+    tooltip:{callbacks:{label:ctx=>ctx.parsed.y!==null?' '+Math.round(ctx.parsed.y)+'d':' No data'}},
+  },scales:{
+    x:{grid:{color:gc()},ticks:{color:tc(),maxRotation:45}},
+    y:{grid:{color:gc()},ticks:{color:tc(),callback:v=>v+'d'},
+       title:{display:true,text:'Avg Prep Time (days)',color:tc()},suggestedMin:0},
+  }}});
+}
+
 // ── Render charts ─────────────────────────────────────────────────
 function renderCharts(K){
-  const{kpi1,kpi2,kpi3,kpi4,kpi6,pipeline}=K;
-
-  // Chart 1: Cycle time horizontal bar — descending by avg, with day labels
-  mou('chart-cycle',{type:'bar',data:{
-    labels:kpi1.map(d=>d.method),
-    datasets:[{label:'Avg days',data:kpi1.map(d=>d.avg),backgroundColor:'#4da6d9',borderRadius:4}]
-  },options:{indexAxis:'y',responsive:true,plugins:{legend:{display:false},
-    datalabels:{display:true,anchor:'end',align:'end',color:tc(),font:{size:11,weight:'600'},formatter:v=>\`\${v}d\`},
-    tooltip:{callbacks:{label:ctx=>\` \${ctx.parsed.x}d (n=\${kpi1[ctx.dataIndex].count})\`}}},
-    scales:{x:{grid:{color:gc()},ticks:{color:tc()},title:{display:true,text:'Days',color:tc()}},y:{grid:{display:false},ticks:{color:tc()}}},
-    onClick:(_e,el)=>{ if(!el.length)return; const m=kpi1[el[0].index].method;
-      openModal(\`Cycle Time \u2013 \${m}\`,drillTable(filteredRows().filter(r=>r.method===m&&r.cycleTime!==null),['id','title','buyer','prReceived','poDate','cycleTime'])); }
-  }});
+  const{kpi1,kpi2,kpi3,kpi4,kpi6,pipeline,kpi1Trend,kpi6Trend}=K;
+  lastKpi1Trend=kpi1Trend;
+  lastKpi6Trend=kpi6Trend;
 
   // Chart 2: Monthly savings bar + average line
   const labels=kpi2.monthly.map(m=>{
@@ -1058,20 +1205,8 @@ function renderCharts(K){
       openModal(\`Plan \u2013 \${b}\`,drillTable(filteredRows().filter(r=>r.planBucket===b),['id','title','buyer','method','prValue','stage'])); }
   }});
 
-  // Chart 6: PR Assigned → Solicitation Issued
-  mou('chart-a2s',{type:'bar',data:{
-    labels:kpi6.map(d=>d.method),
-    datasets:[{label:'Avg days',data:kpi6.map(d=>d.avg),backgroundColor:'#0080c6',borderRadius:4}]
-  },options:{indexAxis:'y',responsive:true,plugins:{legend:{display:false},
-    tooltip:{callbacks:{label:ctx=>\` \${ctx.parsed.x}d (n=\${kpi6[ctx.dataIndex].count})\`}},
-    datalabels:{display:true,anchor:'end',align:'end',color:tc(),font:{size:11,weight:'600'},
-      formatter:v=>\`\${v}d\`}},
-    scales:{x:{grid:{color:gc()},ticks:{color:tc()},title:{display:true,text:'Days',color:tc()}},y:{grid:{display:false},ticks:{color:tc()}}},
-    onClick:(_e,el)=>{ if(!el.length)return; const m=kpi6[el[0].index].method;
-      openModal(\`Prep Time – \${m}\`,drillTable(filteredRows().filter(r=>r.method===m&&r.dateAssigned&&r.solIssued),['id','title','buyer','dateAssigned','solIssued','prReceived']));
-    }
-  }});
-
+  renderCycleTrend(kpi1Trend);
+  renderPrepTrend(kpi6Trend);
 }
 
 // ── Drill table ────────────────────────────────────────────────────
@@ -1221,6 +1356,60 @@ makePills('pills-year',  DASHBOARD_DATA.years,  'year');
 makePills('pills-buyer', DASHBOARD_DATA.buyers, 'buyer');
 initMcd('mcd-method',  DASHBOARD_DATA.methods,  'methods',  'All Methods');
 initMcd('mcd-project', DASHBOARD_DATA.projects, 'projects', 'All Projects');
+// KPI 6 method filter – multi-select (local to trend chart only)
+(function(){
+  const wrap=document.getElementById('pills-kpi6method');
+  const all=document.createElement('button');
+  all.className='pill on'; all.textContent='All';
+  all.onclick=()=>{
+    kpi6MethodSel.clear();
+    wrap.querySelectorAll('.pill').forEach(p=>p.classList.remove('on'));
+    all.classList.add('on');
+    if(lastKpi6Trend) renderPrepTrend(lastKpi6Trend);
+  };
+  wrap.appendChild(all);
+  DASHBOARD_DATA.methods.forEach(method=>{
+    const p=document.createElement('button');
+    p.className='pill'; p.textContent=method;
+    p.onclick=()=>{
+      const wasOn=kpi6MethodSel.has(method);
+      if(wasOn) kpi6MethodSel.delete(method);
+      else kpi6MethodSel.add(method);
+      p.classList.toggle('on',!wasOn);
+      if(kpi6MethodSel.size===0) all.classList.add('on');
+      else all.classList.remove('on');
+      if(lastKpi6Trend) renderPrepTrend(lastKpi6Trend);
+    };
+    wrap.appendChild(p);
+  });
+})();
+// KPI 1 method filter – multi-select (local to trend chart only)
+(function(){
+  const wrap=document.getElementById('pills-kpi1method');
+  const all=document.createElement('button');
+  all.className='pill on'; all.textContent='All';
+  all.onclick=()=>{
+    kpi1MethodSel.clear();
+    wrap.querySelectorAll('.pill').forEach(p=>p.classList.remove('on'));
+    all.classList.add('on');
+    if(lastKpi1Trend) renderCycleTrend(lastKpi1Trend);
+  };
+  wrap.appendChild(all);
+  DASHBOARD_DATA.methods.forEach(method=>{
+    const p=document.createElement('button');
+    p.className='pill'; p.textContent=method;
+    p.onclick=()=>{
+      const wasOn=kpi1MethodSel.has(method);
+      if(wasOn) kpi1MethodSel.delete(method);
+      else kpi1MethodSel.add(method);
+      p.classList.toggle('on',!wasOn);
+      if(kpi1MethodSel.size===0) all.classList.add('on');
+      else all.classList.remove('on');
+      if(lastKpi1Trend) renderCycleTrend(lastKpi1Trend);
+    };
+    wrap.appendChild(p);
+  });
+})();
 refresh();
 <\/script>
 </body>
