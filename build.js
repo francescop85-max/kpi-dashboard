@@ -777,13 +777,13 @@ function generateHTML(data) {
   <div class="grid2">
     <div class="chart-card">
       <button class="export-btn" onclick="exportChart('chart-comp-trend')">PNG</button>
-      <div class="chart-title">KPI 3 – Competitive Mix Trend (% per month) <span style="font-size:10px;font-weight:400;color:var(--blue);margin-left:6px;">● Click a bar to see records</span></div>
+      <div class="chart-title">KPI 3 – Competitive Mix Trend (% per month) <span id="kpi3-trend-badge"></span><span style="font-size:10px;font-weight:400;color:var(--blue);margin-left:6px;">● Click a bar to see records</span></div>
       <div class="kpi-desc">Shows how the monthly mix of Formal Solicitation, LTA, and Informal procurement evolved over time as a percentage of PRs received.</div>
       <canvas id="chart-comp-trend"></canvas>
     </div>
     <div class="chart-card">
       <button class="export-btn" onclick="exportChart('chart-plan-trend')">PNG</button>
-      <div class="chart-title">KPI 4 – Plan Compliance Trend (% per month) <span style="font-size:10px;font-weight:400;color:var(--blue);margin-left:6px;">● Click a bar to see records</span></div>
+      <div class="chart-title">KPI 4 – Plan Compliance Trend (% per month) <span id="kpi4-trend-badge"></span><span style="font-size:10px;font-weight:400;color:var(--blue);margin-left:6px;">● Click a bar to see records</span></div>
       <div class="kpi-desc">Shows how the monthly share of Planned, Unplanned, and N/A PRs evolved over time.</div>
       <canvas id="chart-plan-trend"></canvas>
     </div>
@@ -1130,6 +1130,15 @@ function renderWorkload(kpi5){
   }});
 }
 
+// ── Trend badge helper ────────────────────────────────────────────
+function setTrendBadge(id, regLine, trendUp){
+  const el=document.getElementById(id); if(!el) return;
+  const delta=Math.abs(regLine[regLine.length-1]-regLine[0]);
+  const sign=trendUp?'+':'-';
+  const color=trendUp?'#22c55e':'#ef4444';
+  el.innerHTML=\`<span style="font-size:11px;font-weight:700;color:\${color};margin-left:8px;padding:2px 8px;border-radius:10px;background:\${color}18;">\${trendUp?'↑':'↓'} \${sign}\${delta}% over period</span>\`;
+}
+
 // ── KPI 3 trend ───────────────────────────────────────────────────
 function renderComp3Trend(trend){
   if(!trend||!trend.length) return;
@@ -1145,6 +1154,7 @@ function renderComp3Trend(trend){
   const regLine=xs.map(x=>Math.round(Math.min(100,Math.max(0,intercept+slope*x))));
   const trendUp=slope>0;
   const trendColor=trendUp?'#22c55e':'#ef4444';
+  setTrendBadge('kpi3-trend-badge',regLine,trendUp);
   mou('chart-comp-trend',{type:'bar',data:{labels,datasets:[
     {type:'bar',label:'Competitive',data:compPcts,backgroundColor:'rgba(0,51,102,.75)',stack:'s',order:2,yAxisID:'y'},
     {type:'bar',label:'Direct',data:trend.map(d=>d.dirPct),backgroundColor:'rgba(158,202,225,.75)',stack:'s',order:2,yAxisID:'y'},
@@ -1194,6 +1204,7 @@ function renderPlan4Trend(trend){
   const regLine4=xs4.map(x=>Math.round(Math.min(100,Math.max(0,intercept4+slope4*x))));
   const trendUp4=slope4>0;
   const trendColor4=trendUp4?'#22c55e':'#ef4444';
+  setTrendBadge('kpi4-trend-badge',regLine4,trendUp4);
   mou('chart-plan-trend',{type:'bar',data:{labels,datasets:[
     {type:'bar',label:'Planned',data:pPct,backgroundColor:'rgba(0,51,102,.75)',stack:'s',order:2,yAxisID:'y'},
     {type:'bar',label:'Unplanned',data:uPct,backgroundColor:'rgba(192,57,43,.75)',stack:'s',order:2,yAxisID:'y'},
