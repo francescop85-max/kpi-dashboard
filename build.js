@@ -698,7 +698,7 @@ function generateHTML(data) {
   <div class="grid2">
     <div class="chart-card full">
       <button class="export-btn" onclick="exportChart('chart-cycle-trend')">PNG</button>
-      <div class="chart-title">KPI 1 – Cycle Time Trend (avg days per month)</div>
+      <div class="chart-title">KPI 1 – Cycle Time Trend (avg days per month) <span style="font-size:10px;font-weight:400;color:var(--blue);margin-left:6px;">● Click a point to see records</span></div>
       <div class="kpi-desc">Shows how the average procurement cycle time (PR received to PO issued) evolves month by month. Points are colour-coded: <span style="color:#22c55e;font-weight:600">green ≤30d</span>, <span style="color:#f59e0b;font-weight:600">amber ≤90d</span>, <span style="color:#ef4444;font-weight:600">red &gt;90d</span>. Use the filter below to focus on a specific solicitation method.</div>
       <div style="margin:8px 0 12px;">
         <div class="filter-label" style="margin-bottom:5px;">Filter by Solicitation Method</div>
@@ -752,7 +752,7 @@ function generateHTML(data) {
   <div class="grid2">
     <div class="chart-card full">
       <button class="export-btn" onclick="exportChart('chart-prep-trend')">PNG</button>
-      <div class="chart-title">KPI 6 – Prep Time Trend (avg days per month)</div>
+      <div class="chart-title">KPI 6 – Prep Time Trend (avg days per month) <span style="font-size:10px;font-weight:400;color:var(--blue);margin-left:6px;">● Click a point to see records</span></div>
       <div class="kpi-desc">Shows how the average preparation time (PR assigned → solicitation issued) evolves month by month. Points are colour-coded: <span style="color:#22c55e;font-weight:600">green ≤30d</span>, <span style="color:#f59e0b;font-weight:600">amber ≤45d</span>, <span style="color:#ef4444;font-weight:600">red &gt;45d</span>. Use the filter below to focus on a specific solicitation method.</div>
       <div style="margin:8px 0 12px;">
         <div class="filter-label" style="margin-bottom:5px;">Filter by Solicitation Method</div>
@@ -1067,15 +1067,28 @@ function renderCycleTrend(trend){
   }
   datasets.push({label:'Target (60d)',data:trend.months.map(()=>60),
     borderColor:'#f59e0b',borderWidth:2,borderDash:[6,4],pointRadius:0,fill:false,tension:0});
-  mou('chart-cycle-trend',{type:'line',data:{labels,datasets},options:{responsive:true,plugins:{
-    legend:{labels:{color:tc()}},
-    datalabels:{display:false},
-    tooltip:{callbacks:{label:ctx=>ctx.parsed.y!==null?' '+Math.round(ctx.parsed.y)+'d':' No data'}},
-  },scales:{
-    x:{grid:{color:gc()},ticks:{color:tc(),maxRotation:45}},
-    y:{grid:{color:gc()},ticks:{color:tc(),callback:v=>v+'d'},
-       title:{display:true,text:'Avg Cycle Time (days)',color:tc()},suggestedMin:0},
-  }}});
+  mou('chart-cycle-trend',{type:'line',data:{labels,datasets},options:{responsive:true,
+    plugins:{
+      legend:{labels:{color:tc()}},
+      datalabels:{display:false},
+      tooltip:{callbacks:{label:ctx=>ctx.parsed.y!==null?' '+Math.round(ctx.parsed.y)+'d':' No data'}},
+    },
+    scales:{
+      x:{grid:{color:gc()},ticks:{color:tc(),maxRotation:45}},
+      y:{grid:{color:gc()},ticks:{color:tc(),callback:v=>v+'d'},
+         title:{display:true,text:'Avg Cycle Time (days)',color:tc()},suggestedMin:0},
+    },
+    onHover:(e,el)=>{ e.native.target.style.cursor=el.length?'pointer':'default'; },
+    onClick:(_e,el)=>{
+      if(!el.length) return;
+      const month=trend.months[el[0].index];
+      const selMethods=[...kpi1MethodSel];
+      let rows=filteredRows().filter(r=>(r.prReceived||'').startsWith(month)&&r.cycleTime!==null&&r.cycleTime>=0);
+      if(selMethods.length) rows=rows.filter(r=>selMethods.includes(r.method));
+      const lbl=selMethods.length?selMethods.join(', '):'All Methods';
+      openModal(\`Cycle Time – \${lbl} – \${month}\`,drillTable(rows,['id','title','buyer','method','prReceived','poDate','cycleTime','stage']));
+    },
+  }});
 }
 
 // ── KPI 6 trend state ─────────────────────────────────────────────
@@ -1109,15 +1122,32 @@ function renderPrepTrend(trend){
   }
   datasets.push({label:'Target (30d)',data:trend.months.map(()=>30),
     borderColor:'#f59e0b',borderWidth:2,borderDash:[6,4],pointRadius:0,fill:false,tension:0});
-  mou('chart-prep-trend',{type:'line',data:{labels,datasets},options:{responsive:true,plugins:{
-    legend:{labels:{color:tc()}},
-    datalabels:{display:false},
-    tooltip:{callbacks:{label:ctx=>ctx.parsed.y!==null?' '+Math.round(ctx.parsed.y)+'d':' No data'}},
-  },scales:{
-    x:{grid:{color:gc()},ticks:{color:tc(),maxRotation:45}},
-    y:{grid:{color:gc()},ticks:{color:tc(),callback:v=>v+'d'},
-       title:{display:true,text:'Avg Prep Time (days)',color:tc()},suggestedMin:0},
-  }}});
+  mou('chart-prep-trend',{type:'line',data:{labels,datasets},options:{responsive:true,
+    plugins:{
+      legend:{labels:{color:tc()}},
+      datalabels:{display:false},
+      tooltip:{callbacks:{label:ctx=>ctx.parsed.y!==null?' '+Math.round(ctx.parsed.y)+'d':' No data'}},
+    },
+    scales:{
+      x:{grid:{color:gc()},ticks:{color:tc(),maxRotation:45}},
+      y:{grid:{color:gc()},ticks:{color:tc(),callback:v=>v+'d'},
+         title:{display:true,text:'Avg Prep Time (days)',color:tc()},suggestedMin:0},
+    },
+    onHover:(e,el)=>{ e.native.target.style.cursor=el.length?'pointer':'default'; },
+    onClick:(_e,el)=>{
+      if(!el.length) return;
+      const month=trend.months[el[0].index];
+      const selMethods=[...kpi6MethodSel];
+      let rows=filteredRows().filter(r=>{
+        if(!r.dateAssigned||!r.solIssued) return false;
+        const days=Math.round((new Date(r.solIssued)-new Date(r.dateAssigned))/86400000);
+        return days>=0&&(r.dateAssigned||'').startsWith(month);
+      });
+      if(selMethods.length) rows=rows.filter(r=>selMethods.includes(r.method));
+      const lbl=selMethods.length?selMethods.join(', '):'All Methods';
+      openModal(\`Prep Time – \${lbl} – \${month}\`,drillTable(rows,['id','title','buyer','method','dateAssigned','solIssued','stage']));
+    },
+  }});
 }
 
 // ── Render charts ─────────────────────────────────────────────────
