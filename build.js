@@ -273,7 +273,7 @@ function loadData(csvPath) {
       poNumber: r['PO_x0023_'] || '',
       buyingUnit: parseLookup(r['BuyingUnit']),
     };
-  }).filter(Boolean);
+  }).filter(r => r && !/cancelled/i.test(r.stage));
 }
 
 // ── KPI computations ──────────────────────────────────────────────────────────
