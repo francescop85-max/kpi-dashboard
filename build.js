@@ -1637,11 +1637,10 @@ initMcd('mcd-project', DASHBOARD_DATA.projects, 'projects', 'All Projects');
     p.className='pill'; p.textContent=method;
     p.onclick=()=>{
       const wasOn=kpi6MethodSel.has(method);
-      if(wasOn) kpi6MethodSel.delete(method);
-      else kpi6MethodSel.add(method);
-      p.classList.toggle('on',!wasOn);
-      if(kpi6MethodSel.size===0) all.classList.add('on');
-      else all.classList.remove('on');
+      kpi6MethodSel.clear();
+      wrap.querySelectorAll('.pill').forEach(q=>q.classList.remove('on'));
+      if(!wasOn){ kpi6MethodSel.add(method); p.classList.add('on'); }
+      else all.classList.add('on');
       if(lastKpi6Trend) renderPrepTrend(lastKpi6Trend);
     };
     wrap.appendChild(p);
