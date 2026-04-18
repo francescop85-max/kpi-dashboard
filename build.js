@@ -231,8 +231,8 @@ function loadData(csvPath) {
     const cycleTime     = dateDiffDays(prReceived, poDate);
     const year          = prReceived ? prReceived.getUTCFullYear() : (poDate ? poDate.getUTCFullYear() : null);
 
-    // Competitive vs Direct — based on consolidated category
-    const isCompetitive = method === 'Formal Solicitation';
+    // Competitive vs Direct — LTA counts as competitive (awarded via prior competition)
+    const isCompetitive = method === 'Formal Solicitation' || method === 'LTA';
     const isDirect      = method === 'Informal Solicitation';
 
     // Plan compliance bucket
@@ -724,7 +724,7 @@ function generateHTML(data) {
     <div class="chart-card">
       <button class="export-btn" onclick="exportChart('chart-comp')">PNG</button>
       <div class="chart-title">KPI 3 – Competitive vs Direct</div>
-      <div class="kpi-desc">Shows the proportion of PRs awarded through competitive solicitation (open tender, RFQ, ITB, RFP, etc.) versus direct procurement. Excludes unclassified records from the competitive % headline figure.</div>
+      <div class="kpi-desc">Shows the proportion of PRs awarded through competitive solicitation (ITB, RFP, BAFO, RFQ) or processed under an existing LTA (itself competitively awarded) versus direct/informal procurement.</div>
       <canvas id="chart-comp"></canvas>
       <div class="disclaimer">&#9432; <strong>Other</strong> includes PRs where the solicitation method does not map to a competitive or direct procurement category — typically older records created before the Award Basis field was introduced, or methods not yet classified in the system.</div>
     </div>
