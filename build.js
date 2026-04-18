@@ -765,7 +765,7 @@ function generateHTML(data) {
       <div class="chart-title">KPI 1 – Cycle Time Phase Breakdown (avg days per phase)</div>
       <div style="font-size:10px;font-weight:400;color:var(--blue);margin-bottom:8px;">● Click a segment to see records in that phase</div>
       <div class="kpi-desc">Shows where time accumulates across the procurement cycle — from PR receipt to PO issuance — broken down into process phases. Only records with the relevant milestone dates recorded are included. Phases with no data for a method are omitted.</div>
-      <canvas id="chart-cycle-phases"></canvas>
+      <canvas id="chart-cycle-phases" style="min-height:220px;"></canvas>
     </div>
   </div>
 
@@ -1494,6 +1494,7 @@ function renderCyclePhases(rows){
   mou('chart-cycle-phases',{type:'bar',data:{labels:methods,datasets},options:{
     indexAxis:'y',
     responsive:true,
+    maintainAspectRatio:false,
     plugins:{
       legend:{labels:{color:tc(),font:{size:11}}},
       datalabels:{
