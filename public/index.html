@@ -203,7 +203,7 @@
   <div class="grid2">
     <div class="chart-card full">
       <button class="export-btn" onclick="exportChart('chart-cycle-trend')">PNG</button>
-      <div class="chart-title">KPI 1 – Cycle Time Trend (avg days per month) <span style="font-size:10px;font-weight:400;color:var(--blue);margin-left:6px;">● Click a point to see records</span></div>
+      <div class="chart-title" style="padding-right:60px;">KPI 1 – Cycle Time Trend (avg days per month)</div><div style="font-size:10px;font-weight:400;color:var(--blue);margin-bottom:8px;">● Click a point to see records</div>
       <div class="kpi-desc">Shows how the average procurement cycle time (PR received to PO issued) evolves month by month. Points are colour-coded: <span style="color:#22c55e;font-weight:600">green ≤30d</span>, <span style="color:#f59e0b;font-weight:600">amber ≤90d</span>, <span style="color:#ef4444;font-weight:600">red &gt;90d</span>. Use the filter below to focus on a specific solicitation method.</div>
       <div style="margin:8px 0 12px;">
         <div class="filter-label" style="margin-bottom:5px;">Filter by Solicitation Method</div>
@@ -246,13 +246,15 @@
   <div class="grid2">
     <div class="chart-card">
       <button class="export-btn" onclick="exportChart('chart-comp-trend')">PNG</button>
-      <div class="chart-title">KPI 3 – Competitive Mix Trend (% per month) <span id="kpi3-trend-badge"></span><span style="font-size:10px;font-weight:400;color:var(--blue);margin-left:6px;">● Click a bar to see records</span></div>
+      <div class="chart-title" style="padding-right:60px;">KPI 3 – Competitive Mix Trend (% per month) <span id="kpi3-trend-badge"></span></div>
+      <div style="font-size:10px;font-weight:400;color:var(--blue);margin-bottom:8px;">● Click a bar to see records</div>
       <div class="kpi-desc">Shows how the monthly mix of Formal Solicitation, LTA, and Informal procurement evolved over time as a percentage of PRs received.</div>
       <canvas id="chart-comp-trend"></canvas>
     </div>
     <div class="chart-card">
       <button class="export-btn" onclick="exportChart('chart-plan-trend')">PNG</button>
-      <div class="chart-title">KPI 4 – Plan Compliance Trend (% per month) <span id="kpi4-trend-badge"></span><span style="font-size:10px;font-weight:400;color:var(--blue);margin-left:6px;">● Click a bar to see records</span></div>
+      <div class="chart-title" style="padding-right:60px;">KPI 4 – Plan Compliance Trend (% per month) <span id="kpi4-trend-badge"></span></div>
+      <div style="font-size:10px;font-weight:400;color:var(--blue);margin-bottom:8px;">● Click a bar to see records</div>
       <div class="kpi-desc">Shows how the monthly share of Planned, Unplanned, and N/A PRs evolved over time.</div>
       <canvas id="chart-plan-trend"></canvas>
     </div>
@@ -262,7 +264,7 @@
   <div class="grid2">
     <div class="chart-card full">
       <button class="export-btn" onclick="exportChart('chart-workload')">PNG</button>
-      <div class="chart-title">KPI 5 – Team Workload vs Target (15 PRs / buyer) <span style="font-size:10px;font-weight:400;color:var(--blue);margin-left:6px;">● Click a bar to see records</span></div>
+      <div class="chart-title" style="padding-right:60px;">KPI 5 – Team Workload vs Target (15 PRs / buyer)</div><div style="font-size:10px;font-weight:400;color:var(--blue);margin-bottom:8px;">● Click a bar to see records</div>
       <div class="kpi-desc">Monitors the average number of active Purchase Requests managed per procurement officer over time, compared to a standard workload target of 15 PRs per buyer. Bars in red indicate quarters where the team average exceeded the target — a key indicator for staffing adequacy.</div>
       <div id="workload-summary"></div>
       <canvas id="chart-workload"></canvas>
@@ -273,7 +275,7 @@
   <div class="grid2">
     <div class="chart-card full">
       <button class="export-btn" onclick="exportChart('chart-prep-trend')">PNG</button>
-      <div class="chart-title">KPI 6 – Prep Time Trend (avg days per month) <span style="font-size:10px;font-weight:400;color:var(--blue);margin-left:6px;">● Click a point to see records</span></div>
+      <div class="chart-title" style="padding-right:60px;">KPI 6 – Prep Time Trend (avg days per month)</div><div style="font-size:10px;font-weight:400;color:var(--blue);margin-bottom:8px;">● Click a point to see records</div>
       <div class="kpi-desc">Shows how the average preparation time (PR assigned → solicitation issued) evolves month by month. Points are colour-coded: <span style="color:#22c55e;font-weight:600">green ≤30d</span>, <span style="color:#f59e0b;font-weight:600">amber ≤45d</span>, <span style="color:#ef4444;font-weight:600">red &gt;45d</span>. Use the filter below to focus on a specific solicitation method.</div>
       <div style="margin:8px 0 12px;">
         <div class="filter-label" style="margin-bottom:5px;">Filter by Solicitation Method</div>
