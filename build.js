@@ -1134,12 +1134,11 @@ function renderComp3Trend(trend){
   if(!trend||!trend.length) return;
   const labels=trend.map(d=>{ const[y,mo]=d.month.split('-'); return new Date(+y,+mo-1).toLocaleString('en',{month:'short',year:'2-digit'}); });
   mou('chart-comp-trend',{type:'bar',data:{labels,datasets:[
-    {label:'Formal Solicitation',data:trend.map(d=>d.formalPct),backgroundColor:'rgba(0,51,102,.75)',stack:'s'},
-    {label:'LTA',data:trend.map(d=>d.ltaPct),backgroundColor:'rgba(0,159,218,.75)',stack:'s'},
-    {label:'Informal',data:trend.map(d=>d.dirPct),backgroundColor:'rgba(158,202,225,.75)',stack:'s'},
+    {label:'Competitive',data:trend.map(d=>d.compPct),backgroundColor:'rgba(0,51,102,.75)',stack:'s'},
+    {label:'Direct',data:trend.map(d=>d.dirPct),backgroundColor:'rgba(158,202,225,.75)',stack:'s'},
   ]},options:{responsive:true,
     plugins:{legend:{labels:{color:tc()}},datalabels:{display:false},
-      tooltip:{callbacks:{label:ctx=>\` \${ctx.dataset.label}: \${ctx.parsed.y}% (\${trend[ctx.dataIndex][['formal','lta','dir'][ctx.datasetIndex]]} PRs)\`}}},
+      tooltip:{callbacks:{label:ctx=>{const keys=['formal+lta','dir'];const count=ctx.datasetIndex===0?trend[ctx.dataIndex].formal+trend[ctx.dataIndex].lta:trend[ctx.dataIndex].dir;return\` \${ctx.dataset.label}: \${ctx.parsed.y}% (\${count} PRs)\`;}}}},
     scales:{
       x:{stacked:true,grid:{color:gc()},ticks:{color:tc(),maxRotation:45}},
       y:{stacked:true,grid:{color:gc()},ticks:{color:tc(),callback:v=>v+'%'},max:100,title:{display:true,text:'% of PRs',color:tc()}},
@@ -1148,11 +1147,9 @@ function renderComp3Trend(trend){
     onClick:(_e,el)=>{
       if(!el.length) return;
       const month=trend[el[0].index].month;
-      const cats=[r=>r.method==='Formal Solicitation',r=>r.method==='LTA',r=>!r.isCompetitive];
-      const lbls=['Formal Solicitation','LTA','Informal'];
-      const i=el[0].datasetIndex;
-      const rows=filteredRows().filter(r=>(r.prReceived||r.poDate||'').startsWith(month)&&cats[i](r));
-      openModal(\`KPI 3 – \${lbls[i]} – \${month}\`,drillTable(rows,['id','title','buyer','method','prReceived','prValue','stage']));
+      const isComp=el[0].datasetIndex===0;
+      const rows=filteredRows().filter(r=>(r.prReceived||r.poDate||'').startsWith(month)&&(isComp?r.isCompetitive:!r.isCompetitive));
+      openModal(\`KPI 3 – \${isComp?'Competitive':'Direct'} – \${month}\`,drillTable(rows,['id','title','buyer','method','prReceived','prValue','stage']));
     },
   }});
 }
