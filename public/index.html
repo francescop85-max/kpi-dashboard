@@ -574,39 +574,58 @@ function renderCards(K, total) {
   const compPct = compBase ? Math.round(100 * kpi3.compCount / compBase) : 0;
   const dirPct  = compBase ? Math.round(100 * kpi3.dirCount  / compBase) : 0;
 
-  const target = 60; const cycDiff = avgCycle - target;
-  const fastestM = [...kpi1].sort((a,b)=>a.avg-b.avg)[0];
+  const target = 60;
   const compTarget = 70;
+  const PREP_CD = {'Formal Solicitation':10,'Informal Solicitation':7,'LTA':4};
+
+  // Per-method cycle time breakdown rows (dashboard card)
+  const cycBreakdown = kpi1.length ? kpi1.map(m => {
+    const mc = m.avg > target ? (m.avg > target*1.25 ? 'var(--red)' : 'var(--amber)') : 'var(--blue)';
+    const sn = m.method.replace(' Solicitation','');
+    return '<div style="display:flex;justify-content:space-between;align-items:baseline;padding:3px 0;border-bottom:1px solid var(--border);">'
+      +'<span style="font-size:11px;color:var(--text-muted);">'+sn+'</span>'
+      +'<span style="font-size:16px;font-weight:700;color:'+mc+'">'+m.avg+'d</span></div>';
+  }).join('') : '';
+
+  // Per-method prep time breakdown rows (dashboard card)
+  const prepBreakdown = kpi6.length ? kpi6.map(m => {
+    const ptgt = PREP_CD[m.method]||10;
+    const mc = m.avg > ptgt*1.5 ? 'var(--red)' : m.avg > ptgt ? 'var(--amber)' : 'var(--blue)';
+    const sn = m.method.replace(' Solicitation','');
+    return '<div style="display:flex;justify-content:space-between;align-items:baseline;padding:3px 0;border-bottom:1px solid var(--border);">'
+      +'<span style="font-size:11px;color:var(--text-muted);">'+sn+'</span>'
+      +'<span style="font-size:16px;font-weight:700;color:'+mc+'">'+m.avg+'d</span></div>';
+  }).join('') : '';
 
   const narr = [
     (() => { const closed=filteredRows().filter(r=>/closed|po issued/i.test(r.stage||'')).length; return `${total-closed} active, ${closed} closed or completed.`; })(),
-    cycDiff>0 ? `${cycDiff}d above the ${target}-day benchmark.${fastestM?' Fastest: '+fastestM.method+' ('+fastestM.avg+'d).':''}`
-              : `Within target — ${Math.abs(cycDiff)}d below the ${target}-day benchmark.${fastestM?' Fastest: '+fastestM.method+' ('+fastestM.avg+'d).':''}`,
+    kpi1.length ? kpi1.map(m=>m.method.replace(' Solicitation','')+': '+m.avg+'d ('+m.count+' PRs)').join(' · ') : 'No cycle data.',
     `${fmtUSD(kpi2.sumPos)} positive, ${fmtUSD(Math.abs(kpi2.sumNeg))} negative. Avg monthly: ${fmtUSD(kpi2.avgMonthly)}.`,
     compPct>=compTarget ? `${compPct}% competitive (target ${compTarget}%, excl. ${kpi3.otherCount} unclassified). Direct: ${dirPct}% (${kpi3.dirCount} PRs, ${fmtUSD(kpi3.dirValue)}).`
                         : `${compPct}% competitive — below ${compTarget}% target (excl. ${kpi3.otherCount} unclassified). Direct: ${dirPct}% (${kpi3.dirCount} PRs).`,
-    avgAssignToSol > 0 ? `Avg ${avgAssignToSol} days from PR assignment to solicitation launch.${kpi6[0]?' Slowest: '+kpi6.slice(-1)[0].method+' ('+kpi6.slice(-1)[0].avg+'d).':''}`
-                       : 'No data available for this period.',
+    kpi6.length ? kpi6.map(m=>m.method.replace(' Solicitation','')+': '+m.avg+'d (target '+(PREP_CD[m.method]||10)+'cd)').join(' · ') : 'No prep data.',
   ];
 
   // Status colours: red = target missed, amber = borderline, blue/navy = on target
-  const cycCol = avgCycle > target ? (avgCycle > target * 1.25 ? 'var(--red)' : 'var(--amber)') : 'var(--blue)';
+  const cycCol = 'var(--navy)';
   const savCol = kpi2.net < 0 ? 'var(--red)' : kpi2.net === 0 ? 'var(--amber)' : 'var(--blue)';
   const cmpCol = compPct < 60 ? 'var(--red)' : compPct < compTarget ? 'var(--amber)' : 'var(--blue)';
-  const prepCol = avgAssignToSol > 45 ? 'var(--red)' : avgAssignToSol > 30 ? 'var(--amber)' : 'var(--blue)';
+  const prepCol = 'var(--navy)';
   const bgOf = col => col==='var(--red)'?'rgba(239,68,68,.07)':col==='var(--amber)'?'rgba(245,158,11,.07)':'';
   const cards = [
     { lbl:'Total PRs',       val:fmt(total),           sub:'in selection',                  col:'var(--navy)' },
-    { lbl:'Avg Cycle Time',  val:avgCycle+'d',          sub:`target ${target}d`,             col:cycCol },
+    { lbl:'Cycle Time',      breakdown:cycBreakdown,   sub:'by method',                     col:cycCol },
     { lbl:'Net Savings',     val:fmtUSD(kpi2.net),     sub:'vs estimated value',             col:savCol },
     { lbl:'Competitive',     val:compPct+'%',           sub:fmt(kpi3.compCount)+' of '+fmt(compBase)+' classified PRs', col:cmpCol },
-    { lbl:'Avg Prep Time',   val:avgAssignToSol+'d',    sub:'PR assigned → solicitation',    col:prepCol },
+    { lbl:'Prep Time',       breakdown:prepBreakdown,  sub:'PR assigned → solicitation',    col:prepCol },
   ];
   document.getElementById('kpi-row').innerHTML = cards.map((c,i) => `
     <div class="kpi-card" style="border-left-color:${c.col};${bgOf(c.col)?'background:'+bgOf(c.col)+';':''}">
       <div class="kpi-lbl">${c.lbl}</div>
-      <div class="kpi-val" style="color:${c.col}">${c.val}</div>
-      <div class="kpi-sub">${c.sub}</div>
+      ${c.breakdown!=null
+        ? '<div style="margin:4px 0 2px;">'+c.breakdown+'</div>'
+        : '<div class="kpi-val" style="color:'+c.col+'">'+c.val+'</div><div class="kpi-sub">'+c.sub+'</div>'
+      }
       <div class="kpi-narrative">${narr[i]}</div>
     </div>`).join('');
 }
@@ -1085,11 +1104,33 @@ function generateReport(){
   ].filter(Boolean);
   const scopeNote=filterCtx.length?`Filtered view — ${filterCtx.join(' | ')}`:'Full portfolio — all periods and buyers';
 
+  // ── Per-method breakdowns for report ─────────────────────────────
+  const RPT_PREP_CD={'Formal Solicitation':10,'Informal Solicitation':7,'LTA':4};
+  const rptCycBreakdown=K.kpi1.map(m=>{
+    const sn=m.method.replace(' Solicitation','');
+    const rc=m.avg>60?(m.avg>75?'#dc2626':'#d97706'):'#003366';
+    return '<div style="display:flex;justify-content:space-between;align-items:baseline;padding:5px 0;border-bottom:1px solid #f1f5f9;">'
+      +'<span style="font-size:12px;color:#64748b;">'+sn+'</span>'
+      +'<div><span style="font-size:19px;font-weight:800;color:'+rc+'">'+m.avg+'d</span>'
+      +'<span style="font-size:10px;color:#94a3b8;margin-left:5px;">'+m.count+' PRs</span></div></div>';
+  }).join('');
+  const rptPrepBreakdown=K.kpi6.map(m=>{
+    const sn=m.method.replace(' Solicitation','');
+    const ptgt=RPT_PREP_CD[m.method]||10;
+    const rc=m.avg>ptgt*1.5?'#dc2626':m.avg>ptgt?'#d97706':'#003366';
+    return '<div style="display:flex;justify-content:space-between;align-items:baseline;padding:5px 0;border-bottom:1px solid #f1f5f9;">'
+      +'<span style="font-size:12px;color:#64748b;">'+sn+'</span>'
+      +'<div><span style="font-size:19px;font-weight:800;color:'+rc+'">'+m.avg+'d</span>'
+      +'<span style="font-size:10px;color:#94a3b8;margin-left:5px;">target: '+ptgt+'cd</span></div></div>';
+  }).join('');
+
   // ── Narrative paragraphs ──────────────────────────────────────────
   const p1=(()=>{
-    const cycleMsg=avgCycle<=cycleTgt
-      ?`The average procurement cycle time stands at <strong>${avgCycle} days</strong>, ${cycleTgt-avgCycle} days below the ${cycleTgt}-day target — indicating a well-paced procurement process.`
-      :`The average procurement cycle time stands at <strong>${avgCycle} days</strong>, ${avgCycle-cycleTgt} days above the ${cycleTgt}-day target — warranting attention to pipeline efficiency.`;
+    const cycBreakStr=K.kpi1.map(m=>m.method.replace(' Solicitation','')+': <strong>'+m.avg+'d</strong>').join(', ');
+    const cycleMsg='Procurement cycle times differ significantly by modality — '+cycBreakStr+'. '
+      +(avgCycle<=cycleTgt
+        ?'The overall portfolio average of <strong>'+avgCycle+'d</strong> is within the '+cycleTgt+'-day benchmark.'
+        :'The overall portfolio average of <strong>'+avgCycle+'d</strong> exceeds the '+cycleTgt+'-day benchmark, driven primarily by longer Formal Solicitation processes which are expected given their complexity.');
     const savMsg=kpi2.net>0
       ?`Procurement savings for the period total <strong>${fmtUSD(kpi2.net)}</strong> against estimated values, reflecting effective market engagement and negotiation by the team.`
       :`The net savings position for the period stands at <strong>${fmtUSD(kpi2.net)}</strong>, suggesting that final contracted values exceeded initial estimates in some cases.`;
@@ -1111,10 +1152,10 @@ function generateReport(){
     const wlMsg=kpi5.currentAvg<=wlTgt
       ?`Team workload is within the standard target, with an average of <strong>${kpi5.currentAvg} active PRs per buyer</strong> against the ${wlTgt}-PR benchmark across ${kpi5.numActiveBuyers} active procurement officers.`
       :`Team workload is above the standard target at <strong>${kpi5.currentAvg} PRs per buyer</strong> (target: ${wlTgt}), with ${kpi5.numActiveBuyers} active procurement officers currently managing ${kpi5.totalActive} open PRs. This level may affect processing quality and timeliness.`;
-    const prepMsg=avgAssignToSol>0
-      ?`The average solicitation preparation time is <strong>${avgAssignToSol} days</strong> from PR assignment to solicitation issuance.`
+    const prepMsg=K.kpi6.length
+      ?'Solicitation preparation times by modality: '+K.kpi6.map(m=>m.method.replace(' Solicitation','')+': <strong>'+m.avg+'d</strong> (target '+(RPT_PREP_CD[m.method]||10)+'cd)').join(', ')+'.'
       :'';
-    return `${wlMsg} ${prepMsg?prepMsg+' ':''}`.trim();
+    return (wlMsg+(prepMsg?' '+prepMsg:'')).trim();
   })();
 
   // ── Key observations ──────────────────────────────────────────────
@@ -1142,7 +1183,7 @@ function generateReport(){
   if(savRag==='red') actions.push('Review the quality of budget estimates at PR submission stage. Engage requesters on realistic market pricing to improve savings accuracy.');
 
   // ── KPI card builder ──────────────────────────────────────────────
-  const kpiCard=(num,title,value,target,rag,finding)=>`
+  const kpiCard=(num,title,value,target,rag,finding,breakdownHtml)=>`
     <div style="border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;">
       <div style="background:#003366;padding:10px 14px;display:flex;align-items:center;gap:10px;">
         <div style="background:rgba(255,255,255,.15);color:#fff;font-size:12px;font-weight:800;border-radius:6px;width:24px;height:24px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">${num}</div>
@@ -1150,10 +1191,10 @@ function generateReport(){
         <div style="margin-left:auto;background:${ragBg[rag]};color:${ragColor[rag]};font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;white-space:nowrap;">${ragLabel[rag]}</div>
       </div>
       <div style="padding:12px 14px;">
-        <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:6px;">
-          <div style="font-size:26px;font-weight:800;color:${ragColor[rag]};line-height:1;">${value}</div>
-          <div style="font-size:11px;color:#64748b;">target: ${target}</div>
-        </div>
+        ${breakdownHtml
+          ? '<div style="margin-bottom:8px;">'+breakdownHtml+'</div>'
+          : '<div style="display:flex;align-items:baseline;gap:8px;margin-bottom:6px;"><div style="font-size:26px;font-weight:800;color:'+ragColor[rag]+';line-height:1;">'+value+'</div><div style="font-size:11px;color:#64748b;">target: '+target+'</div></div>'
+        }
         <div style="font-size:11.5px;color:#475569;line-height:1.5;border-top:1px solid #f1f5f9;padding-top:8px;">${finding}</div>
       </div>
     </div>`;
@@ -1214,10 +1255,9 @@ function generateReport(){
   <!-- KPI Overview -->
   <h2 style="margin-top:28px;">Key Performance Indicators</h2>
   <div class="kpi-grid">
-    ${kpiCard('1','Procurement Cycle Time',avgCycle+'d',cycleTgt+'d',cycleRag,
-      avgCycle<=cycleTgt
-        ?`Cycle time is ${cycleTgt-avgCycle} days below target. ${K.kpi1.length?`Fastest method: ${[...K.kpi1].sort((a,b)=>a.avg-b.avg)[0].method} (${[...K.kpi1].sort((a,b)=>a.avg-b.avg)[0].avg}d).`:''}`
-        :`Cycle time exceeds target by ${avgCycle-cycleTgt} days. ${K.kpi1.length?`Slowest method: ${K.kpi1[0].method} (${K.kpi1[0].avg}d).`:''}`
+    ${kpiCard('1','Procurement Cycle Time','','',cycleRag,
+      K.kpi1.length?'Overall portfolio average: '+avgCycle+'d (target: '+cycleTgt+'d).':'No cycle data.',
+      rptCycBreakdown
     )}
     ${kpiCard('2','Procurement Savings',fmtUSD(kpi2.net),'Positive',savRag,
       `Positive: ${fmtUSD(kpi2.sumPos)} · Negative: ${fmtUSD(Math.abs(kpi2.sumNeg))} · Avg monthly: ${fmtUSD(kpi2.avgMonthly)}.`
@@ -1233,8 +1273,9 @@ function generateReport(){
     ${kpiCard('5','Team Workload',kpi5.currentAvg+' PRs/buyer',wlTgt+' PRs/buyer',wlRag,
       `${kpi5.numActiveBuyers} active buyers managing ${kpi5.totalActive} open PRs. Target exceeded in ${kpi5.monthsOver} month(s).`
     )}
-    ${kpiCard('6','Solicitation Prep Time',avgAssignToSol?avgAssignToSol+'d':'—','7–10 wd',prepRag,
-      avgAssignToSol?`Average ${avgAssignToSol} calendar days from PR assignment to solicitation launch.`:'No data available for this period.'
+    ${kpiCard('6','Solicitation Prep Time','','',prepRag,
+      K.kpi6.length?'Calendar days from PR assignment to solicitation launch.':'No data available for this period.',
+      rptPrepBreakdown
     )}
   </div>
 
