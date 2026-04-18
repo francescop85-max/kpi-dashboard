@@ -471,6 +471,41 @@ function computeKPIs(rows) {
     ? fmtDate(new Date(Math.max(...modDates.map(d => d.getTime()))))
     : fmtDate(new Date());
 
+  // ── KPI 3 trend: monthly competitive mix ────────────────────────────────
+  const k3map = {};
+  for (const r of rows) {
+    const d = r.prReceived || r.poDate; if (!d) continue;
+    const month = fmtDate(d).slice(0, 7);
+    if (!k3map[month]) k3map[month] = { formal: 0, lta: 0, dir: 0 };
+    if (r.method === 'LTA') k3map[month].lta++;
+    else if (r.isCompetitive) k3map[month].formal++;
+    else k3map[month].dir++;
+  }
+  const kpi3Trend = Object.entries(k3map).sort(([a],[b]) => a.localeCompare(b)).map(([month, d]) => {
+    const total = d.formal + d.lta + d.dir;
+    return { month, formal: d.formal, lta: d.lta, dir: d.dir, total,
+      formalPct: total ? Math.round(100*d.formal/total) : 0,
+      ltaPct:    total ? Math.round(100*d.lta/total)    : 0,
+      dirPct:    total ? Math.round(100*d.dir/total)    : 0,
+      compPct:   total ? Math.round(100*(d.formal+d.lta)/total) : 0 };
+  });
+
+  // ── KPI 4 trend: monthly plan compliance mix ─────────────────────────────
+  const k4map = {};
+  for (const r of rows) {
+    const d = r.prReceived || r.poDate; if (!d) continue;
+    const month = fmtDate(d).slice(0, 7);
+    if (!k4map[month]) k4map[month] = { Planned: 0, Unplanned: 0, 'N/A': 0 };
+    k4map[month][r.planBucket]++;
+  }
+  const kpi4Trend = Object.entries(k4map).sort(([a],[b]) => a.localeCompare(b)).map(([month, d]) => {
+    const total = d.Planned + d.Unplanned + d['N/A'];
+    return { month, planned: d.Planned, unplanned: d.Unplanned, na: d['N/A'], total,
+      plannedPct:   total ? Math.round(100*d.Planned/total)   : 0,
+      unplannedPct: total ? Math.round(100*d.Unplanned/total) : 0,
+      naPct:        total ? Math.round(100*d['N/A']/total)    : 0 };
+  });
+
   // ── Serialisable rows (dates as strings) ─────────────────────────────────
   const serialRows = rows.map(r => ({
     ...r,
@@ -484,7 +519,7 @@ function computeKPIs(rows) {
     dateClosed:   fmtDate(r.dateClosed),
   }));
 
-  return { kpi1, kpi2, kpi3, kpi4, kpi5, kpi6, pipeline, years, buyers, stages, methods, projects, lastUpdated, rows: serialRows, avgCycle, avgAssignToSol };
+  return { kpi1, kpi2, kpi3, kpi4, kpi5, kpi6, pipeline, years, buyers, stages, methods, projects, lastUpdated, rows: serialRows, avgCycle, avgAssignToSol, kpi3Trend, kpi4Trend };
 }
 
 
@@ -737,6 +772,22 @@ function generateHTML(data) {
     </div>
   </div>
 
+  <!-- KPI 3 + KPI 4 trends -->
+  <div class="grid2">
+    <div class="chart-card">
+      <button class="export-btn" onclick="exportChart('chart-comp-trend')">PNG</button>
+      <div class="chart-title">KPI 3 – Competitive Mix Trend (% per month) <span style="font-size:10px;font-weight:400;color:var(--blue);margin-left:6px;">● Click a bar to see records</span></div>
+      <div class="kpi-desc">Shows how the monthly mix of Formal Solicitation, LTA, and Informal procurement evolved over time as a percentage of PRs received.</div>
+      <canvas id="chart-comp-trend"></canvas>
+    </div>
+    <div class="chart-card">
+      <button class="export-btn" onclick="exportChart('chart-plan-trend')">PNG</button>
+      <div class="chart-title">KPI 4 – Plan Compliance Trend (% per month) <span style="font-size:10px;font-weight:400;color:var(--blue);margin-left:6px;">● Click a bar to see records</span></div>
+      <div class="kpi-desc">Shows how the monthly share of Planned, Unplanned, and N/A PRs evolved over time.</div>
+      <canvas id="chart-plan-trend"></canvas>
+    </div>
+  </div>
+
   <!-- KPI 5: Team Workload (full width) -->
   <div class="grid2">
     <div class="chart-card full">
@@ -933,7 +984,41 @@ function recompute(rows){
     }),
   };
 
-  return{kpi1,kpi2,kpi3,kpi4,kpi5,pipeline,avgCycle,kpi6,avgAssignToSol:avgA2S,kpi1Trend,kpi6Trend};
+  // KPI 3 trend
+  const k3mc={};
+  for(const r of rows){
+    const d=r.prReceived||r.poDate; if(!d) continue;
+    const month=d.slice(0,7);
+    if(!k3mc[month]) k3mc[month]={formal:0,lta:0,dir:0};
+    if(r.method==='LTA') k3mc[month].lta++;
+    else if(r.isCompetitive) k3mc[month].formal++;
+    else k3mc[month].dir++;
+  }
+  const kpi3Trend=Object.entries(k3mc).sort(([a],[b])=>a.localeCompare(b)).map(([month,d])=>{
+    const total=d.formal+d.lta+d.dir;
+    return{month,formal:d.formal,lta:d.lta,dir:d.dir,total,
+      formalPct:total?Math.round(100*d.formal/total):0,
+      ltaPct:total?Math.round(100*d.lta/total):0,
+      dirPct:total?Math.round(100*d.dir/total):0,
+      compPct:total?Math.round(100*(d.formal+d.lta)/total):0};
+  });
+  // KPI 4 trend
+  const k4mc={};
+  for(const r of rows){
+    const d=r.prReceived||r.poDate; if(!d) continue;
+    const month=d.slice(0,7);
+    if(!k4mc[month]) k4mc[month]={Planned:0,Unplanned:0,'N/A':0};
+    k4mc[month][r.planBucket]++;
+  }
+  const kpi4Trend=Object.entries(k4mc).sort(([a],[b])=>a.localeCompare(b)).map(([month,d])=>{
+    const total=d.Planned+d.Unplanned+d['N/A'];
+    return{month,planned:d.Planned,unplanned:d.Unplanned,na:d['N/A'],total,
+      plannedPct:total?Math.round(100*d.Planned/total):0,
+      unplannedPct:total?Math.round(100*d.Unplanned/total):0,
+      naPct:total?Math.round(100*d['N/A']/total):0};
+  });
+
+  return{kpi1,kpi2,kpi3,kpi4,kpi5,pipeline,avgCycle,kpi6,avgAssignToSol:avgA2S,kpi1Trend,kpi6Trend,kpi3Trend,kpi4Trend};
 }
 
 // ── KPI Cards ──────────────────────────────────────────────────────
@@ -1040,6 +1125,61 @@ function renderWorkload(kpi5){
         return qMonths.some(m=>d.startsWith(m));
       });
       openModal(\`Workload – \${quarter}\`,drillTable(rows,['id','title','buyer','method','prReceived','stage','cycleTime']));
+    },
+  }});
+}
+
+// ── KPI 3 trend ───────────────────────────────────────────────────
+function renderComp3Trend(trend){
+  if(!trend||!trend.length) return;
+  const labels=trend.map(d=>{ const[y,mo]=d.month.split('-'); return new Date(+y,+mo-1).toLocaleString('en',{month:'short',year:'2-digit'}); });
+  mou('chart-comp-trend',{type:'bar',data:{labels,datasets:[
+    {label:'Formal Solicitation',data:trend.map(d=>d.formalPct),backgroundColor:'rgba(0,51,102,.75)',stack:'s'},
+    {label:'LTA',data:trend.map(d=>d.ltaPct),backgroundColor:'rgba(0,159,218,.75)',stack:'s'},
+    {label:'Informal',data:trend.map(d=>d.dirPct),backgroundColor:'rgba(158,202,225,.75)',stack:'s'},
+  ]},options:{responsive:true,
+    plugins:{legend:{labels:{color:tc()}},datalabels:{display:false},
+      tooltip:{callbacks:{label:ctx=>\` \${ctx.dataset.label}: \${ctx.parsed.y}% (\${trend[ctx.dataIndex][['formal','lta','dir'][ctx.datasetIndex]]} PRs)\`}}},
+    scales:{
+      x:{stacked:true,grid:{color:gc()},ticks:{color:tc(),maxRotation:45}},
+      y:{stacked:true,grid:{color:gc()},ticks:{color:tc(),callback:v=>v+'%'},max:100,title:{display:true,text:'% of PRs',color:tc()}},
+    },
+    onHover:(e,el)=>{ e.native.target.style.cursor=el.length?'pointer':'default'; },
+    onClick:(_e,el)=>{
+      if(!el.length) return;
+      const month=trend[el[0].index].month;
+      const cats=[r=>r.method==='Formal Solicitation',r=>r.method==='LTA',r=>!r.isCompetitive];
+      const lbls=['Formal Solicitation','LTA','Informal'];
+      const i=el[0].datasetIndex;
+      const rows=filteredRows().filter(r=>(r.prReceived||r.poDate||'').startsWith(month)&&cats[i](r));
+      openModal(\`KPI 3 – \${lbls[i]} – \${month}\`,drillTable(rows,['id','title','buyer','method','prReceived','prValue','stage']));
+    },
+  }});
+}
+
+// ── KPI 4 trend ───────────────────────────────────────────────────
+function renderPlan4Trend(trend){
+  if(!trend||!trend.length) return;
+  const labels=trend.map(d=>{ const[y,mo]=d.month.split('-'); return new Date(+y,+mo-1).toLocaleString('en',{month:'short',year:'2-digit'}); });
+  mou('chart-plan-trend',{type:'bar',data:{labels,datasets:[
+    {label:'Planned',data:trend.map(d=>d.plannedPct),backgroundColor:'rgba(0,51,102,.75)',stack:'s'},
+    {label:'Unplanned',data:trend.map(d=>d.unplannedPct),backgroundColor:'rgba(192,57,43,.75)',stack:'s'},
+    {label:'N/A',data:trend.map(d=>d.naPct),backgroundColor:'rgba(158,202,225,.75)',stack:'s'},
+  ]},options:{responsive:true,
+    plugins:{legend:{labels:{color:tc()}},datalabels:{display:false},
+      tooltip:{callbacks:{label:ctx=>{const keys=['planned','unplanned','na'];return\` \${ctx.dataset.label}: \${ctx.parsed.y}% (\${trend[ctx.dataIndex][keys[ctx.datasetIndex]]} PRs)\`;} }}},
+    scales:{
+      x:{stacked:true,grid:{color:gc()},ticks:{color:tc(),maxRotation:45}},
+      y:{stacked:true,grid:{color:gc()},ticks:{color:tc(),callback:v=>v+'%'},max:100,title:{display:true,text:'% of PRs',color:tc()}},
+    },
+    onHover:(e,el)=>{ e.native.target.style.cursor=el.length?'pointer':'default'; },
+    onClick:(_e,el)=>{
+      if(!el.length) return;
+      const month=trend[el[0].index].month;
+      const buckets=['Planned','Unplanned','N/A'];
+      const b=buckets[el[0].datasetIndex];
+      const rows=filteredRows().filter(r=>(r.prReceived||r.poDate||'').startsWith(month)&&r.planBucket===b);
+      openModal(\`KPI 4 – \${b} – \${month}\`,drillTable(rows,['id','title','buyer','method','prReceived','prValue','stage']));
     },
   }});
 }
@@ -1167,7 +1307,7 @@ function renderPrepTrend(trend){
 
 // ── Render charts ─────────────────────────────────────────────────
 function renderCharts(K){
-  const{kpi1,kpi2,kpi3,kpi4,kpi6,pipeline,kpi1Trend,kpi6Trend}=K;
+  const{kpi1,kpi2,kpi3,kpi4,kpi6,pipeline,kpi1Trend,kpi6Trend,kpi3Trend,kpi4Trend}=K;
   lastKpi1Trend=kpi1Trend;
   lastKpi6Trend=kpi6Trend;
 
@@ -1252,6 +1392,8 @@ function renderCharts(K){
 
   renderCycleTrend(kpi1Trend);
   renderPrepTrend(kpi6Trend);
+  renderComp3Trend(kpi3Trend);
+  renderPlan4Trend(kpi4Trend);
 }
 
 // ── Drill table ────────────────────────────────────────────────────
