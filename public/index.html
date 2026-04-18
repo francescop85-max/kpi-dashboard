@@ -246,7 +246,7 @@
   <div class="grid2">
     <div class="chart-card full">
       <button class="export-btn" onclick="exportChart('chart-workload')">PNG</button>
-      <div class="chart-title">KPI 5 – Team Workload vs Target (15 PRs / buyer)</div>
+      <div class="chart-title">KPI 5 – Team Workload vs Target (15 PRs / buyer) <span style="font-size:10px;font-weight:400;color:var(--blue);margin-left:6px;">● Click a bar to see records</span></div>
       <div class="kpi-desc">Monitors the average number of active Purchase Requests managed per procurement officer over time, compared to a standard workload target of 15 PRs per buyer. Bars in red indicate quarters where the team average exceeded the target — a key indicator for staffing adequacy.</div>
       <div id="workload-summary"></div>
       <canvas id="chart-workload"></canvas>
@@ -531,6 +531,21 @@ function renderWorkload(kpi5){
     tooltip:{callbacks:{label:ctx=>ctx.dataset.type==='bar'?` ${ctx.parsed.y} PRs/buyer (~${wlQ[ctx.dataIndex].numBuyers} buyers)`:` Target: ${wlTarget}`}}},
     scales:{x:{grid:{color:gc()},ticks:{color:tc()}},
             y:{grid:{color:gc()},ticks:{color:tc()},title:{display:true,text:'Avg PRs / buyer',color:tc()},suggestedMin:0}},
+    onHover:(e,el)=>{ e.native.target.style.cursor=el.length&&el[0].datasetIndex===0?'pointer':'default'; },
+    onClick:(_e,el)=>{
+      if(!el.length||el[0].datasetIndex!==0) return;
+      const quarter=wlQ[el[0].index].q;
+      const[qy,qq]=quarter.split(' Q');
+      const qMonths=['01','02','03','04','05','06','07','08','09','10','11','12']
+        .slice((+qq-1)*3,(+qq-1)*3+3).map(m=>`${qy}-${m}`);
+      const rows=filteredRows().filter(r=>{
+        const b=r.buyer||'Unknown';
+        if(wlExclC(b)) return false;
+        const d=r.prReceived||'';
+        return qMonths.some(m=>d.startsWith(m));
+      });
+      openModal(`Workload – ${quarter}`,drillTable(rows,['id','title','buyer','method','prReceived','stage','cycleTime']));
+    },
   }});
 }
 
