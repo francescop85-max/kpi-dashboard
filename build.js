@@ -219,14 +219,18 @@ function loadData(csvPath) {
 
     if (method === null) return null; // excluded method — drop row
 
-    const prReceived    = parseDate(r['PRReceived']);
-    const poDate        = parseDate(r['POIssuancedate']);
-    const solIssued     = parseDate(r['SollicitationIssued']);
-    const solClosed     = parseDate(r['SolicitationClosed']);
-    const created       = parseDate(r['Created']);
-    const modified      = parseDate(r['Modified']);
-    const dateAssigned  = parseDate(r['PRAssigned']);
-    const dateClosed    = parseDate(r['DateClosed']);
+    const prReceived      = parseDate(r['PRReceived']);
+    const poDate          = parseDate(r['POIssuancedate']);
+    const solIssued       = parseDate(r['SollicitationIssued']);
+    const solClosed       = parseDate(r['SolicitationClosed']);
+    const created         = parseDate(r['Created']);
+    const modified        = parseDate(r['Modified']);
+    const dateAssigned    = parseDate(r['PRAssigned']);
+    const dateClosed      = parseDate(r['DateClosed']);
+    const techOfferShared = parseDate(r['TechnicalOfferShared']);
+    const tcoClearance    = parseDate(r['TCOClearance']);
+    const ltoClearance    = parseDate(r['LTOClearance']);
+    const awardRec        = parseDate(r['AwardRecommandation']);
 
     const cycleTime     = dateDiffDays(prReceived, poDate);
     const year          = prReceived ? prReceived.getUTCFullYear() : (poDate ? poDate.getUTCFullYear() : null);
@@ -268,6 +272,10 @@ function loadData(csvPath) {
       modified,
       dateAssigned,
       dateClosed,
+      techOfferShared,
+      tcoClearance,
+      ltoClearance,
+      awardRec,
       cycleTime,
       year,
       poNumber: r['PO_x0023_'] || '',
@@ -516,8 +524,12 @@ function computeKPIs(rows) {
     solClosed:    fmtDate(r.solClosed),
     created:      fmtDate(r.created),
     modified:     fmtDate(r.modified),
-    dateAssigned: fmtDate(r.dateAssigned),
-    dateClosed:   fmtDate(r.dateClosed),
+    dateAssigned:    fmtDate(r.dateAssigned),
+    dateClosed:      fmtDate(r.dateClosed),
+    techOfferShared: fmtDate(r.techOfferShared),
+    tcoClearance:    fmtDate(r.tcoClearance),
+    ltoClearance:    fmtDate(r.ltoClearance),
+    awardRec:        fmtDate(r.awardRec),
   }));
 
   return { kpi1, kpi2, kpi3, kpi4, kpi5, kpi6, pipeline, years, buyers, stages, methods, projects, lastUpdated, rows: serialRows, avgCycle, avgAssignToSol, kpi3Trend, kpi4Trend };
@@ -743,6 +755,17 @@ function generateHTML(data) {
         <div class="pills" id="pills-kpi1method"></div>
       </div>
       <canvas id="chart-cycle-trend"></canvas>
+    </div>
+  </div>
+
+  <!-- KPI 1b: Cycle Phase Breakdown -->
+  <div class="grid2">
+    <div class="chart-card full">
+      <button class="export-btn" onclick="exportChart('chart-cycle-phases')">PNG</button>
+      <div class="chart-title">KPI 1 – Cycle Time Phase Breakdown (avg days per phase)</div>
+      <div style="font-size:10px;font-weight:400;color:var(--blue);margin-bottom:8px;">● Click a segment to see records in that phase</div>
+      <div class="kpi-desc">Shows where time accumulates across the procurement cycle — from PR receipt to PO issuance — broken down into process phases. Only records with the relevant milestone dates recorded are included. Phases with no data for a method are omitted.</div>
+      <canvas id="chart-cycle-phases"></canvas>
     </div>
   </div>
 
@@ -1421,6 +1444,90 @@ function renderCycleTrend(trend){
   }});
 }
 
+// ── KPI 1 Phase Breakdown ─────────────────────────────────────────
+const CYCLE_PHASES=[
+  {key:'unassigned',   label:'Awaiting Assignment', from:'prReceived',     to:'dateAssigned',    color:'#94a3b8'},
+  {key:'solPrep',      label:'Sol. Preparation',    from:'dateAssigned',   to:'solIssued',       color:'#009FDA'},
+  {key:'marketOpen',   label:'Market Open',         from:'solIssued',      to:'solClosed',       color:'#3b82f6'},
+  {key:'offerReview',  label:'Offer Review',        from:'solClosed',      to:'techOfferShared', color:'#8b5cf6'},
+  {key:'techClear',    label:'Tech Clearance',      from:'techOfferShared',to:'tcoClearance',    color:'#f59e0b'},
+  {key:'awardProc',    label:'Award Process',       from:'tcoClearance',   to:'awardRec',        color:'#f97316'},
+  {key:'poIssuance',   label:'PO Issuance',         from:'awardRec',       to:'poDate',          color:'#22c55e'},
+];
+function computePhases(rows){
+  // per-method accumulators: {phasesKey: {sum, count}}
+  const acc={};
+  for(const r of rows){
+    const m=r.method; if(!m) continue;
+    if(!acc[m]) acc[m]={};
+    for(const p of CYCLE_PHASES){
+      const a=r[p.from]; const b=r[p.to]; if(!a||!b) continue;
+      const d=Math.round((new Date(b)-new Date(a))/86400000);
+      if(d<0) continue;
+      if(!acc[m][p.key]) acc[m][p.key]={sum:0,count:0};
+      acc[m][p.key].sum+=d; acc[m][p.key].count++;
+    }
+  }
+  // convert to averages
+  const result={};
+  for(const[m,phases] of Object.entries(acc)){
+    result[m]={};
+    for(const[k,v] of Object.entries(phases)) result[m][k]=v.count?{avg:Math.round(v.sum/v.count),count:v.count}:null;
+  }
+  return result;
+}
+function renderCyclePhases(rows){
+  const phases=computePhases(rows);
+  const methods=Object.keys(phases).sort();
+  if(!methods.length){CR['chart-cycle-phases']&&CR['chart-cycle-phases'].destroy();return;}
+  // Only show phases that have data in at least one method
+  const activePh=CYCLE_PHASES.filter(p=>methods.some(m=>phases[m][p.key]));
+  const datasets=activePh.map(p=>({
+    label:p.label,
+    data:methods.map(m=>(phases[m][p.key]||{avg:0}).avg),
+    backgroundColor:p.color+'cc',
+    borderColor:p.color,
+    borderWidth:1,
+    borderRadius:3,
+    phaseKey:p.key,
+  }));
+  mou('chart-cycle-phases',{type:'bar',data:{labels:methods,datasets},options:{
+    indexAxis:'y',
+    responsive:true,
+    plugins:{
+      legend:{labels:{color:tc(),font:{size:11}}},
+      datalabels:{
+        display:ctx=>ctx.parsed.x>0,
+        color:'#fff',
+        font:{size:10,weight:'bold'},
+        formatter:v=>v>0?v+'d':'',
+        anchor:'center',align:'center',
+        clamp:true,
+      },
+      tooltip:{callbacks:{
+        label:ctx=>{
+          const m=methods[ctx.dataIndex];
+          const ph=activePh[ctx.datasetIndex];
+          const info=phases[m]&&phases[m][ph.key];
+          if(!info||!info.avg) return null;
+          return ' '+ph.label+': '+info.avg+'d ('+info.count+' records)';
+        },
+      }},
+    },
+    scales:{
+      x:{stacked:true,grid:{color:gc()},ticks:{color:tc(),callback:v=>v+'d'},title:{display:true,text:'Average Days',color:tc()}},
+      y:{stacked:true,grid:{color:gc()},ticks:{color:tc()}},
+    },
+    onClick:(_e,el)=>{
+      if(!el.length) return;
+      const m=methods[el[0].index];
+      const ph=activePh[el[0].datasetIndex];
+      const rws=filteredRows().filter(r=>r.method===m&&r[ph.from]&&r[ph.to]&&Math.round((new Date(r[ph.to])-new Date(r[ph.from]))/86400000)>=0);
+      openModal(\`Phase: \${ph.label} – \${m}\`,drillTable(rws,['id','title','buyer','method',ph.from,ph.to,'cycleTime','stage']));
+    },
+  }});
+}
+
 // ── KPI 6 trend state ─────────────────────────────────────────────
 let lastKpi6Trend=null;
 let kpi6MethodSel=new Set();
@@ -1593,6 +1700,7 @@ function renderCharts(K){
   }});
 
   renderCycleTrend(kpi1Trend);
+  renderCyclePhases(K.rows||filteredRows());
   renderPrepTrend(kpi6Trend);
   renderComp3Trend(kpi3Trend);
   renderPlan4Trend(kpi4Trend);
