@@ -150,6 +150,7 @@
   </div>
   <div style="display:flex;align-items:center;gap:12px;">
     <button class="print-btn" onclick="openAbout()" style="background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.35);">ℹ About</button>
+    <button class="print-btn" onclick="generateReport()" style="background:rgba(0,159,218,.25);border-color:#009FDA;">📊 Management Report</button>
     <button class="print-btn" onclick="window.print()">🖨️ Print / PDF</button>
     <label class="toggle-wrap" title="Toggle dark mode">
       <span style="font-size:13px;">☀️</span>
@@ -1038,6 +1039,233 @@ function openModal(title,html){
   document.getElementById('modal-ov').classList.add('open');
 }
 function closeModal(){ document.getElementById('modal-ov').classList.remove('open'); }
+// ── Management Report Generator ───────────────────────────────────
+function generateReport(){
+  const rows=filteredRows();
+  const K=recompute(rows);
+  const avgCycle=K.avgCycle,kpi2=K.kpi2,kpi3=K.kpi3,kpi4=K.kpi4,kpi5=K.kpi5,avgAssignToSol=K.avgAssignToSol,kpi3Trend=K.kpi3Trend,kpi4Trend=K.kpi4Trend;
+  const now=new Date();
+  const reportDate=now.toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'});
+  const reportMonth=now.toLocaleDateString('en-GB',{month:'long',year:'numeric'});
+
+  // ── Derived values ────────────────────────────────────────────────
+  const compBase=kpi3.compCount+kpi3.dirCount;
+  const compPct=compBase?Math.round(100*kpi3.compCount/compBase):0;
+  const planBase=kpi4.planCounts.Planned+kpi4.planCounts.Unplanned;
+  const planPct=planBase?Math.round(100*kpi4.planCounts.Planned/planBase):0;
+  const cycleTgt=60, wlTgt=15, compTgt=70, planTgt=70;
+
+  // Trend directions
+  const k3last=kpi3Trend&&kpi3Trend.length>1?kpi3Trend[kpi3Trend.length-1].compPct:null;
+  const k3first=kpi3Trend&&kpi3Trend.length>1?kpi3Trend[0].compPct:null;
+  const k3improving=k3last!==null&&k3last>k3first;
+  const k4last=kpi4Trend&&kpi4Trend.length>1?kpi4Trend.filter(d=>d.planned+d.unplanned>0).slice(-1)[0]:null;
+  const k4first=kpi4Trend&&kpi4Trend.length>1?kpi4Trend.filter(d=>d.planned+d.unplanned>0)[0]:null;
+  const k4lastPct=k4last?Math.round(100*k4last.planned/(k4last.planned+k4last.unplanned)):null;
+  const k4firstPct=k4first?Math.round(100*k4first.planned/(k4first.planned+k4first.unplanned)):null;
+  const k4improving=k4lastPct!==null&&k4firstPct!==null&&k4lastPct>k4firstPct;
+
+  // RAG status helpers
+  const cycleRag=avgCycle<=cycleTgt?'green':avgCycle<=cycleTgt*1.25?'amber':'red';
+  const savRag=kpi2.net>0?'green':kpi2.net===0?'amber':'red';
+  const compRag=compPct>=compTgt?'green':compPct>=compTgt-10?'amber':'red';
+  const planRag=planPct>=planTgt?'green':planPct>=planTgt-15?'amber':'red';
+  const wlRag=kpi5.currentAvg<=wlTgt?'green':kpi5.currentAvg<=wlTgt*1.2?'amber':'red';
+  const prepRag=avgAssignToSol<=10?'green':avgAssignToSol<=15?'amber':'red';
+  const ragColor={green:'#16a34a',amber:'#d97706',red:'#dc2626'};
+  const ragBg={green:'#f0fdf4',amber:'#fffbeb',red:'#fef2f2'};
+  const ragLabel={green:'On Target',amber:'Monitor',red:'Action Required'};
+
+  // Active filter context
+  const filterCtx=[
+    AF.year?`Year: ${AF.year}`:'',
+    AF.buyer?`Buyer: ${AF.buyer}`:'',
+    AF.methods.size?`Methods: ${[...AF.methods].join(', ')}`:'',
+    AF.projects.size?`Projects: ${[...AF.projects].join(', ')}`:'',
+  ].filter(Boolean);
+  const scopeNote=filterCtx.length?`Filtered view — ${filterCtx.join(' | ')}`:'Full portfolio — all periods and buyers';
+
+  // ── Narrative paragraphs ──────────────────────────────────────────
+  const p1=(()=>{
+    const cycleMsg=avgCycle<=cycleTgt
+      ?`The average procurement cycle time stands at <strong>${avgCycle} days</strong>, ${cycleTgt-avgCycle} days below the ${cycleTgt}-day target — indicating a well-paced procurement process.`
+      :`The average procurement cycle time stands at <strong>${avgCycle} days</strong>, ${avgCycle-cycleTgt} days above the ${cycleTgt}-day target — warranting attention to pipeline efficiency.`;
+    const savMsg=kpi2.net>0
+      ?`Procurement savings for the period total <strong>${fmtUSD(kpi2.net)}</strong> against estimated values, reflecting effective market engagement and negotiation by the team.`
+      :`The net savings position for the period stands at <strong>${fmtUSD(kpi2.net)}</strong>, suggesting that final contracted values exceeded initial estimates in some cases.`;
+    return `${cycleMsg} ${savMsg}`;
+  })();
+
+  const p2=(()=>{
+    const compMsg=compPct>=compTgt
+      ?`Competitive procurement compliance is strong at <strong>${compPct}%</strong> (target: ${compTgt}%), ${k3improving?'with an improving trend over the reporting period':'though the trend over the period shows a gradual decline that should be monitored'}.`
+      :`Competitive procurement compliance stands at <strong>${compPct}%</strong>, below the ${compTgt}% target. ${k3improving?'The trend is improving, suggesting recent corrective actions are taking effect.':'The declining trend requires management attention and a review of procurement modalities.'}`;
+    const planMsg=planBase>0?(planPct>=planTgt
+      ?`Procurement plan adherence is strong at <strong>${planPct}%</strong> of tracked PRs (target: ${planTgt}%), ${k4improving?'with a positive trajectory':'though the trend merits continued attention'}.`
+      :`Procurement plan adherence stands at <strong>${planPct}%</strong> (target: ${planTgt}%), indicating that a significant share of procurement activity remains reactive. ${k4improving?'Encouragingly, the trend is improving.':'Strengthening the annual planning process is recommended.'}`)
+      :'Plan compliance tracking was recently introduced; data will become more meaningful over time.';
+    return `${compMsg} ${planMsg}`;
+  })();
+
+  const p3=(()=>{
+    const wlMsg=kpi5.currentAvg<=wlTgt
+      ?`Team workload is within the standard target, with an average of <strong>${kpi5.currentAvg} active PRs per buyer</strong> against the ${wlTgt}-PR benchmark across ${kpi5.numActiveBuyers} active procurement officers.`
+      :`Team workload is above the standard target at <strong>${kpi5.currentAvg} PRs per buyer</strong> (target: ${wlTgt}), with ${kpi5.numActiveBuyers} active procurement officers currently managing ${kpi5.totalActive} open PRs. This level may affect processing quality and timeliness.`;
+    const prepMsg=avgAssignToSol>0
+      ?`The average solicitation preparation time is <strong>${avgAssignToSol} days</strong> from PR assignment to solicitation issuance.`
+      :'';
+    return `${wlMsg} ${prepMsg?prepMsg+' ':''}`.trim();
+  })();
+
+  // ── Key observations ──────────────────────────────────────────────
+  const obs=[];
+  if(cycleRag==='green') obs.push({icon:'✓',col:'#16a34a',text:`Cycle time (${avgCycle}d) is ${cycleTgt-avgCycle}d below the ${cycleTgt}-day target.`});
+  if(cycleRag==='amber') obs.push({icon:'⚠',col:'#d97706',text:`Cycle time (${avgCycle}d) slightly exceeds target — review highest-delay methods.`});
+  if(cycleRag==='red')   obs.push({icon:'✗',col:'#dc2626',text:`Cycle time (${avgCycle}d) significantly above target (${cycleTgt}d) — immediate process review recommended.`});
+  if(savRag==='green')   obs.push({icon:'✓',col:'#16a34a',text:`Net savings of ${fmtUSD(kpi2.net)} demonstrate strong value-for-money.`});
+  if(savRag==='red')     obs.push({icon:'✗',col:'#dc2626',text:`Negative net savings (${fmtUSD(kpi2.net)}) — review estimate accuracy and negotiation outcomes.`});
+  if(compRag==='green')  obs.push({icon:'✓',col:'#16a34a',text:`Competitive procurement at ${compPct}% meets the ${compTgt}% target.${k3improving?' Trend is improving.':''}`});
+  if(compRag!=='green')  obs.push({icon:compRag==='red'?'✗':'⚠',col:ragColor[compRag],text:`Competitive procurement at ${compPct}% is below the ${compTgt}% target.${k3improving?' Trend improving.':' Trend declining — review modality selection.'}`});
+  if(planBase>0){
+    if(planRag==='green') obs.push({icon:'✓',col:'#16a34a',text:`Plan compliance at ${planPct}% meets the ${planTgt}% target.${k4improving?' Upward trend confirmed.':''}`});
+    if(planRag!=='green') obs.push({icon:planRag==='red'?'✗':'⚠',col:ragColor[planRag],text:`Plan compliance at ${planPct}% is below ${planTgt}% — strengthen annual procurement planning.`});
+  }
+  if(wlRag==='red')      obs.push({icon:'✗',col:'#dc2626',text:`Team workload (${kpi5.currentAvg} PRs/buyer) exceeds the ${wlTgt}-PR standard — consider staffing review.`});
+  if(kpi5.monthsOver>0)  obs.push({icon:'⚠',col:'#d97706',text:`Workload exceeded target in ${kpi5.monthsOver} months over the reporting period.`});
+
+  // ── Recommended actions (only when issues exist) ──────────────────
+  const actions=[];
+  if(cycleRag!=='green') actions.push('Conduct a root-cause analysis of the highest-delay solicitation methods and introduce process milestones to track progress.');
+  if(compRag!=='green'&&!k3improving) actions.push('Review procurement modality selection criteria. Ensure LTA utilisation is maximised before resorting to direct procurement.');
+  if(planRag!=='green') actions.push('Strengthen the annual procurement planning cycle: engage programme teams earlier in the planning process to increase PR predictability.');
+  if(wlRag!=='green') actions.push('Assess current staffing levels against pipeline volume. Consider temporary support or workload redistribution across the procurement team.');
+  if(savRag==='red') actions.push('Review the quality of budget estimates at PR submission stage. Engage requesters on realistic market pricing to improve savings accuracy.');
+
+  // ── KPI card builder ──────────────────────────────────────────────
+  const kpiCard=(num,title,value,target,rag,finding)=>`
+    <div style="border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;">
+      <div style="background:#003366;padding:10px 14px;display:flex;align-items:center;gap:10px;">
+        <div style="background:rgba(255,255,255,.15);color:#fff;font-size:12px;font-weight:800;border-radius:6px;width:24px;height:24px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">${num}</div>
+        <div style="color:#fff;font-size:11.5px;font-weight:700;">${title}</div>
+        <div style="margin-left:auto;background:${ragBg[rag]};color:${ragColor[rag]};font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;white-space:nowrap;">${ragLabel[rag]}</div>
+      </div>
+      <div style="padding:12px 14px;">
+        <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:6px;">
+          <div style="font-size:26px;font-weight:800;color:${ragColor[rag]};line-height:1;">${value}</div>
+          <div style="font-size:11px;color:#64748b;">target: ${target}</div>
+        </div>
+        <div style="font-size:11.5px;color:#475569;line-height:1.5;border-top:1px solid #f1f5f9;padding-top:8px;">${finding}</div>
+      </div>
+    </div>`;
+
+  // ── Build HTML ────────────────────────────────────────────────────
+  const html=`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Procurement Performance Report – ${reportMonth}</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0;}
+    body{font-family:'Segoe UI',Arial,sans-serif;background:#f8fafc;color:#1a2e44;font-size:13px;}
+    .page{max-width:900px;margin:0 auto;padding:40px 48px;}
+    h2{font-size:15px;font-weight:700;color:#003366;margin-bottom:14px;padding-bottom:8px;border-bottom:2px solid #003366;}
+    p{font-size:13px;line-height:1.75;color:#334155;margin-bottom:12px;}
+    .kpi-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:32px;}
+    .obs-item{display:flex;gap:10px;margin-bottom:10px;align-items:flex-start;}
+    .obs-icon{font-size:14px;font-weight:700;width:20px;flex-shrink:0;margin-top:1px;}
+    .action-item{display:flex;gap:10px;margin-bottom:10px;}
+    .action-num{background:#003366;color:#fff;font-size:10px;font-weight:700;border-radius:50%;width:18px;height:18px;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px;}
+    .tag{display:inline-block;font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;margin-right:4px;}
+    @media print{
+      body{background:#fff;}
+      .no-print{display:none!important;}
+      .page{padding:20px 28px;}
+    }
+  </style>
+</head>
+<body>
+<div class="page">
+
+  <!-- Print button -->
+  <div class="no-print" style="text-align:right;margin-bottom:20px;">
+    <button onclick="window.print()" style="background:#003366;color:#fff;border:none;padding:8px 20px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;">🖨️ Save as PDF / Print</button>
+  </div>
+
+  <!-- Letterhead -->
+  <div style="background:#003366;border-radius:12px;padding:28px 32px;margin-bottom:32px;color:#fff;">
+    <div style="font-size:11px;letter-spacing:1.5px;opacity:.7;text-transform:uppercase;margin-bottom:4px;">Food and Agriculture Organization of the United Nations</div>
+    <div style="font-size:22px;font-weight:800;letter-spacing:-.3px;margin-bottom:2px;">Ukraine Procurement Unit</div>
+    <div style="font-size:15px;font-weight:400;opacity:.85;margin-bottom:20px;">Procurement Performance Report</div>
+    <div style="display:flex;gap:24px;flex-wrap:wrap;">
+      <div><div style="font-size:10px;opacity:.6;text-transform:uppercase;letter-spacing:.8px;">Date of Issue</div><div style="font-size:13px;font-weight:600;margin-top:3px;">${reportDate}</div></div>
+      <div><div style="font-size:10px;opacity:.6;text-transform:uppercase;letter-spacing:.8px;">Portfolio Scope</div><div style="font-size:13px;font-weight:600;margin-top:3px;">${rows.length} Purchase Requests</div></div>
+      <div><div style="font-size:10px;opacity:.6;text-transform:uppercase;letter-spacing:.8px;">Data as of</div><div style="font-size:13px;font-weight:600;margin-top:3px;">${DASHBOARD_DATA.lastUpdated}</div></div>
+      ${filterCtx.length?`<div style="border-left:1px solid rgba(255,255,255,.2);padding-left:20px;"><div style="font-size:10px;opacity:.6;text-transform:uppercase;letter-spacing:.8px;">Active Filters</div><div style="font-size:12px;margin-top:3px;opacity:.9;">${filterCtx.join(' · ')}</div></div>`:''}
+    </div>
+  </div>
+
+  <!-- Executive Summary -->
+  <h2>Executive Summary</h2>
+  <p>${p1}</p>
+  <p>${p2}</p>
+  <p>${p3}</p>
+
+  <!-- KPI Overview -->
+  <h2 style="margin-top:28px;">Key Performance Indicators</h2>
+  <div class="kpi-grid">
+    ${kpiCard('1','Procurement Cycle Time',avgCycle+'d',cycleTgt+'d',cycleRag,
+      avgCycle<=cycleTgt
+        ?`Cycle time is ${cycleTgt-avgCycle} days below target. ${K.kpi1.length?`Fastest method: ${[...K.kpi1].sort((a,b)=>a.avg-b.avg)[0].method} (${[...K.kpi1].sort((a,b)=>a.avg-b.avg)[0].avg}d).`:''}`
+        :`Cycle time exceeds target by ${avgCycle-cycleTgt} days. ${K.kpi1.length?`Slowest method: ${K.kpi1[0].method} (${K.kpi1[0].avg}d).`:''}`
+    )}
+    ${kpiCard('2','Procurement Savings',fmtUSD(kpi2.net),'Positive',savRag,
+      `Positive: ${fmtUSD(kpi2.sumPos)} · Negative: ${fmtUSD(Math.abs(kpi2.sumNeg))} · Avg monthly: ${fmtUSD(kpi2.avgMonthly)}.`
+    )}
+    ${kpiCard('3','Competitive Procurement',compPct+'%',compTgt+'%',compRag,
+      `${kpi3.compCount} competitive PRs out of ${compBase} classified. LTA: ${kpi3.otherCount} PRs. Trend: ${k3improving?'↑ improving':'↓ declining'}.`
+    )}
+    ${kpiCard('4','Plan Compliance',planBase?planPct+'%':'N/A',planTgt+'%',planBase?planRag:'amber',
+      planBase
+        ?`${kpi4.planCounts.Planned} planned, ${kpi4.planCounts.Unplanned} unplanned out of ${planBase} tracked PRs. Trend: ${k4improving?'↑ improving':'↓ declining'}.`
+        :'Insufficient tracked data for this period.'
+    )}
+    ${kpiCard('5','Team Workload',kpi5.currentAvg+' PRs/buyer',wlTgt+' PRs/buyer',wlRag,
+      `${kpi5.numActiveBuyers} active buyers managing ${kpi5.totalActive} open PRs. Target exceeded in ${kpi5.monthsOver} month(s).`
+    )}
+    ${kpiCard('6','Solicitation Prep Time',avgAssignToSol?avgAssignToSol+'d':'—','7–10 wd',prepRag,
+      avgAssignToSol?`Average ${avgAssignToSol} calendar days from PR assignment to solicitation launch.`:'No data available for this period.'
+    )}
+  </div>
+
+  <!-- Key Observations -->
+  <h2>Key Observations</h2>
+  <div style="margin-bottom:28px;">
+    ${obs.map(o=>`<div class="obs-item"><div class="obs-icon" style="color:${o.col}">${o.icon}</div><div style="font-size:12.5px;color:#334155;line-height:1.6;">${o.text}</div></div>`).join('')}
+  </div>
+
+  ${actions.length?`
+  <!-- Recommended Actions -->
+  <h2>Recommended Actions</h2>
+  <div style="margin-bottom:28px;">
+    ${actions.map((a,i)=>`<div class="action-item"><div class="action-num">${i+1}</div><div style="font-size:12.5px;color:#334155;line-height:1.6;">${a}</div></div>`).join('')}
+  </div>`:''}
+
+  <!-- Footer -->
+  <div style="border-top:1px solid #e2e8f0;padding-top:16px;margin-top:8px;display:flex;justify-content:space-between;align-items:center;">
+    <div style="font-size:10.5px;color:#94a3b8;">FAO Ukraine Procurement Unit · Generated ${reportDate} · Data source: SharePoint Procurement Tracking List</div>
+    <div style="font-size:10.5px;color:#94a3b8;font-style:italic;">INTERNAL USE</div>
+  </div>
+
+</div>
+</body>
+</html>`;
+
+  const w=window.open('','_blank');
+  w.document.write(html);
+  w.document.close();
+}
+
 function openAbout(){ const el=document.getElementById('about-ov'); el.style.display='flex'; }
 function closeAbout(){ document.getElementById('about-ov').style.display='none'; }
 document.getElementById('about-ov').addEventListener('click',e=>{ if(e.target===document.getElementById('about-ov'))closeAbout(); });
