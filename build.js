@@ -231,9 +231,10 @@ function loadData(csvPath) {
     const cycleTime     = dateDiffDays(prReceived, poDate);
     const year          = prReceived ? prReceived.getUTCFullYear() : (poDate ? poDate.getUTCFullYear() : null);
 
-    // Competitive vs Direct — LTA counts as competitive (awarded via prior competition)
-    const isCompetitive = method === 'Formal Solicitation' || method === 'LTA';
-    const isDirect      = method === 'Informal Solicitation';
+    // Competitive vs Direct — LTA and any record with competitive award basis count as competitive
+    const awardBasisCompetitive = /competitive/i.test(awardBasis);
+    const isCompetitive = method === 'Formal Solicitation' || method === 'LTA' || awardBasisCompetitive;
+    const isDirect      = !isCompetitive;
 
     // Plan compliance bucket
     let planBucket;
