@@ -317,7 +317,7 @@
         <div style="background:var(--navy);color:#fff;font-size:13px;font-weight:800;border-radius:8px;min-width:30px;height:30px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">1</div>
         <div>
           <div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:5px;">KPI 1 – Procurement Cycle Time</div>
-          <div style="font-size:11.5px;color:var(--muted);line-height:1.6;">Measures the average number of days between receipt of a Purchase Request and issuance of the Purchase Order. A shorter cycle time reflects a more efficient procurement process. The target is 60 days. Tracked monthly by solicitation method to identify where delays concentrate.</div>
+          <div style="font-size:11.5px;color:var(--muted);line-height:1.6;">Measures the average number of days between receipt of a Purchase Request and issuance of the Purchase Order. A shorter cycle time reflects a more efficient procurement process. Targets vary by method: Formal Solicitation 80 days, LTA 10 days, Informal Solicitation 6 working days (~9 calendar days). Tracked monthly by solicitation method to identify where delays concentrate.</div>
         </div>
       </div>
       <div style="border:1px solid var(--border);border-radius:10px;padding:16px 18px;display:flex;gap:14px;align-items:flex-start;">
@@ -584,8 +584,8 @@ function renderCards(K, total) {
   const compPct = compBase ? Math.round(100 * kpi3.compCount / compBase) : 0;
   const dirPct  = compBase ? Math.round(100 * kpi3.dirCount  / compBase) : 0;
 
-  const target = 60;
   const compTarget = 70;
+  const CYCLE_CD = {'Formal Solicitation':80,'Informal Solicitation':9,'LTA':10};
   const PREP_CD = {'Formal Solicitation':10,'Informal Solicitation':7,'LTA':4};
 
   // ── Month-over-month deltas ────────────────────────────────────────
@@ -619,7 +619,8 @@ function renderCards(K, total) {
   const cycMthPrev = cyc2 ? cyc2[0].byMethod : {};
   const cycMthLast = cyc2 ? cyc2[1].byMethod : {};
   const cycBreakdown = kpi1.length ? kpi1.map(m => {
-    const mc = m.avg > target ? (m.avg > target*1.25 ? 'var(--red)' : 'var(--amber)') : 'var(--blue)';
+    const tgt = CYCLE_CD[m.method]||80;
+    const mc = m.avg > tgt ? (m.avg > tgt*1.25 ? 'var(--red)' : 'var(--amber)') : 'var(--blue)';
     const sn = m.method.replace(' Solicitation','');
     const prev = cycMthPrev[m.method]; const curr = cycMthLast[m.method];
     const rd = (prev!=null&&curr!=null) ? rowDelta(curr-prev,true) : '';
@@ -644,7 +645,7 @@ function renderCards(K, total) {
 
   const narr = [
     (() => { const closed=filteredRows().filter(r=>/closed|po issued/i.test(r.stage||'')).length; return `${total-closed} active, ${closed} closed or completed.`; })(),
-    kpi1.length ? kpi1.map(m=>m.method.replace(' Solicitation','')+': '+m.avg+'d ('+m.count+' PRs)').join(' · ') : 'No cycle data.',
+    kpi1.length ? kpi1.map(m=>m.method.replace(' Solicitation','')+': '+m.avg+'d / target '+(CYCLE_CD[m.method]||80)+'d ('+m.count+' PRs)').join(' · ') : 'No cycle data.',
     `${fmtUSD(kpi2.sumPos)} positive, ${fmtUSD(Math.abs(kpi2.sumNeg))} negative. Avg monthly: ${fmtUSD(kpi2.avgMonthly)}.`,
     compPct>=compTarget ? `${compPct}% competitive (target ${compTarget}%, excl. ${kpi3.otherCount} unclassified). Direct: ${dirPct}% (${kpi3.dirCount} PRs, ${fmtUSD(kpi3.dirValue)}).`
                         : `${compPct}% competitive — below ${compTarget}% target (excl. ${kpi3.otherCount} unclassified). Direct: ${dirPct}% (${kpi3.dirCount} PRs).`,
@@ -853,33 +854,46 @@ let lastKpi1Trend=null;
 let kpi1MethodSel=new Set();
 const KPI1_PALETTE=['#009FDA','#003366','#22c55e','#8b5cf6','#ec4899','#06b6d4','#84cc16','#f97316','#a16207','#0f766e'];
 
+// Per-method cycle time targets
+const CYCLE_TARGETS={
+  'Formal Solicitation':  {cd:80, label:'Target 80d',  color:'#003366', dash:[8,4]},
+  'Informal Solicitation':{cd:9,  label:'Target 6wd',  color:'#009FDA', dash:[5,3]},
+  'LTA':                  {cd:10, label:'Target 10d',  color:'#22c55e', dash:[3,3]},
+};
+
 function renderCycleTrend(trend){
   if(!trend||!trend.months.length) return;
-  const methods=[...kpi1MethodSel];
+  const selM=[...kpi1MethodSel]; // 0 or 1 item (single-select)
   const labels=trend.months.map(m=>{
     const[y,mo]=m.split('-');
     return new Date(+y,+mo-1).toLocaleString('en',{month:'short',year:'2-digit'});
   });
   let datasets;
-  if(!methods.length){
+  const ptColor=(v,method)=>{
+    if(v===null) return 'transparent';
+    const tgt=CYCLE_TARGETS[method]||CYCLE_TARGETS['Formal Solicitation'];
+    return v<=tgt.cd?'#22c55e':v<=tgt.cd*1.25?'#f59e0b':'#ef4444';
+  };
+  if(!selM.length){
     const pts=trend.data.map(d=>d.avg);
     datasets=[{label:'All Methods (avg)',data:pts,
       borderColor:'#009FDA',backgroundColor:'rgba(0,159,218,0.08)',
       borderWidth:2,pointRadius:5,tension:0.3,spanGaps:true,fill:true,
-      pointBackgroundColor:pts.map(v=>v===null?'transparent':v<=30?'#22c55e':v<=90?'#f59e0b':'#ef4444'),
-      pointBorderColor:pts.map(v=>v===null?'transparent':v<=30?'#22c55e':v<=90?'#f59e0b':'#ef4444')}];
+      pointBackgroundColor:pts.map(v=>ptColor(v,'Formal Solicitation')),
+      pointBorderColor:pts.map(v=>ptColor(v,'Formal Solicitation'))}];
   } else {
-    datasets=methods.map((method,i)=>{
-      const color=KPI1_PALETTE[i%KPI1_PALETTE.length];
-      const pts=trend.data.map(d=>d.byMethod[method]??null);
-      return{label:method,data:pts,borderColor:color,backgroundColor:color+'18',
-        borderWidth:2,pointRadius:4,tension:0.3,spanGaps:true,fill:false,
-        pointBackgroundColor:pts.map(v=>v===null?'transparent':v<=30?'#22c55e':v<=90?'#f59e0b':'#ef4444'),
-        pointBorderColor:pts.map(v=>v===null?'transparent':v<=30?'#22c55e':v<=90?'#f59e0b':'#ef4444')};
-    });
+    const method=selM[0];
+    const color=CYCLE_TARGETS[method]?CYCLE_TARGETS[method].color:'#009FDA';
+    const pts=trend.data.map(d=>d.byMethod[method]??null);
+    datasets=[{label:method,data:pts,borderColor:color,backgroundColor:color+'18',
+      borderWidth:2,pointRadius:4,tension:0.3,spanGaps:true,fill:false,
+      pointBackgroundColor:pts.map(v=>ptColor(v,method)),
+      pointBorderColor:pts.map(v=>ptColor(v,method))}];
+    const t=CYCLE_TARGETS[method];
+    if(t) datasets.push({label:t.label,data:trend.months.map(()=>t.cd),
+      borderColor:color,borderWidth:2,borderDash:t.dash,pointRadius:0,fill:false,tension:0,
+      order:10});
   }
-  datasets.push({label:'Target (60d)',data:trend.months.map(()=>60),
-    borderColor:'#f59e0b',borderWidth:2,borderDash:[6,4],pointRadius:0,fill:false,tension:0});
   mou('chart-cycle-trend',{type:'line',data:{labels,datasets},options:{responsive:true,
     plugins:{
       legend:{labels:{color:tc()}},
@@ -1118,7 +1132,8 @@ function generateReport(){
   const compPct=compBase?Math.round(100*kpi3.compCount/compBase):0;
   const planBase=kpi4.planCounts.Planned+kpi4.planCounts.Unplanned;
   const planPct=planBase?Math.round(100*kpi4.planCounts.Planned/planBase):0;
-  const cycleTgt=60, wlTgt=15, compTgt=70, planTgt=70;
+  const RPT_CYCLE_CD={'Formal Solicitation':80,'Informal Solicitation':9,'LTA':10};
+  const wlTgt=15, compTgt=70, planTgt=70;
 
   // Trend directions
   const k3last=kpi3Trend&&kpi3Trend.length>1?kpi3Trend[kpi3Trend.length-1].compPct:null;
@@ -1131,7 +1146,9 @@ function generateReport(){
   const k4improving=k4lastPct!==null&&k4firstPct!==null&&k4lastPct>k4firstPct;
 
   // RAG status helpers
-  const cycleRag=avgCycle<=cycleTgt?'green':avgCycle<=cycleTgt*1.25?'amber':'red';
+  // Cycle RAG: worst status across methods with data
+  const cycleRagPerMethod=K.kpi1.map(m=>{const t=RPT_CYCLE_CD[m.method]||80;return m.avg<=t?'green':m.avg<=t*1.25?'amber':'red';});
+  const cycleRag=cycleRagPerMethod.includes('red')?'red':cycleRagPerMethod.includes('amber')?'amber':cycleRagPerMethod.length?'green':'amber';
   const savRag=kpi2.net>0?'green':kpi2.net===0?'amber':'red';
   const compRag=compPct>=compTgt?'green':compPct>=compTgt-10?'amber':'red';
   const planRag=planPct>=planTgt?'green':planPct>=planTgt-15?'amber':'red';
@@ -1152,31 +1169,45 @@ function generateReport(){
 
   // ── Per-method breakdowns for report ─────────────────────────────
   const RPT_PREP_CD={'Formal Solicitation':10,'Informal Solicitation':7,'LTA':4};
+  const last2r=arr=>arr&&arr.length>=2?[arr[arr.length-2],arr[arr.length-1]]:null;
+  const cyc2r=last2r(K.kpi1Trend&&K.kpi1Trend.data);
   const rptCycBreakdown=K.kpi1.map(m=>{
     const sn=m.method.replace(' Solicitation','');
-    const rc=m.avg>60?(m.avg>75?'#dc2626':'#d97706'):'#003366';
+    const tgt=RPT_CYCLE_CD[m.method]||80;
+    const rc=m.avg>tgt?(m.avg>tgt*1.25?'#dc2626':'#d97706'):'#003366';
+    const prev=cyc2r?cyc2r[0].byMethod[m.method]:null;
+    const curr=cyc2r?cyc2r[1].byMethod[m.method]:null;
+    const delta=(prev!=null&&curr!=null)?curr-prev:null;
+    const darrow=delta===null?'':delta>0?'<span style="color:#dc2626;font-size:11px;font-weight:700;margin-left:4px;">▲'+delta+'d</span>':'<span style="color:#16a34a;font-size:11px;font-weight:700;margin-left:4px;">▼'+Math.abs(delta)+'d</span>';
+    const tgtLabel=m.method==='Informal Solicitation'?'6wd':tgt+'d';
     return '<div style="display:flex;justify-content:space-between;align-items:baseline;padding:5px 0;border-bottom:1px solid #f1f5f9;">'
       +'<span style="font-size:12px;color:#64748b;">'+sn+'</span>'
-      +'<div><span style="font-size:19px;font-weight:800;color:'+rc+'">'+m.avg+'d</span>'
-      +'<span style="font-size:10px;color:#94a3b8;margin-left:5px;">'+m.count+' PRs</span></div></div>';
+      +'<div style="text-align:right;"><span style="font-size:19px;font-weight:800;color:'+rc+'">'+m.avg+'d</span>'+darrow
+      +'<span style="display:block;font-size:10px;color:#94a3b8;">target: '+tgtLabel+' · '+m.count+' PRs</span></div></div>';
   }).join('');
+  const prp2r=last2r(K.kpi6Trend&&K.kpi6Trend.data);
   const rptPrepBreakdown=K.kpi6.map(m=>{
     const sn=m.method.replace(' Solicitation','');
     const ptgt=RPT_PREP_CD[m.method]||10;
     const rc=m.avg>ptgt*1.5?'#dc2626':m.avg>ptgt?'#d97706':'#003366';
+    const prev=prp2r?prp2r[0].byMethod[m.method]:null;
+    const curr=prp2r?prp2r[1].byMethod[m.method]:null;
+    const delta=(prev!=null&&curr!=null)?curr-prev:null;
+    const darrow=delta===null?'':delta>0?'<span style="color:#dc2626;font-size:11px;font-weight:700;margin-left:4px;">▲'+delta+'d</span>':'<span style="color:#16a34a;font-size:11px;font-weight:700;margin-left:4px;">▼'+Math.abs(delta)+'d</span>';
     return '<div style="display:flex;justify-content:space-between;align-items:baseline;padding:5px 0;border-bottom:1px solid #f1f5f9;">'
       +'<span style="font-size:12px;color:#64748b;">'+sn+'</span>'
-      +'<div><span style="font-size:19px;font-weight:800;color:'+rc+'">'+m.avg+'d</span>'
-      +'<span style="font-size:10px;color:#94a3b8;margin-left:5px;">target: '+ptgt+'cd</span></div></div>';
+      +'<div style="text-align:right;"><span style="font-size:19px;font-weight:800;color:'+rc+'">'+m.avg+'d</span>'+darrow
+      +'<span style="display:block;font-size:10px;color:#94a3b8;">target: '+ptgt+'cd</span></div></div>';
   }).join('');
 
   // ── Narrative paragraphs ──────────────────────────────────────────
   const p1=(()=>{
-    const cycBreakStr=K.kpi1.map(m=>m.method.replace(' Solicitation','')+': <strong>'+m.avg+'d</strong>').join(', ');
-    const cycleMsg='Procurement cycle times differ significantly by modality — '+cycBreakStr+'. '
-      +(avgCycle<=cycleTgt
-        ?'The overall portfolio average of <strong>'+avgCycle+'d</strong> is within the '+cycleTgt+'-day benchmark.'
-        :'The overall portfolio average of <strong>'+avgCycle+'d</strong> exceeds the '+cycleTgt+'-day benchmark, driven primarily by longer Formal Solicitation processes which are expected given their complexity.');
+    const cycBreakStr=K.kpi1.map(m=>{const t=RPT_CYCLE_CD[m.method]||80;const tl=m.method==='Informal Solicitation'?'6wd':t+'d';return m.method.replace(' Solicitation','')+': <strong>'+m.avg+'d</strong> (target: '+tl+')';}).join(', ');
+    const cycExceeded=K.kpi1.filter(m=>m.avg>(RPT_CYCLE_CD[m.method]||80));
+    const cycleMsg='Procurement cycle times by modality: '+cycBreakStr+'. '
+      +(cycExceeded.length===0
+        ?'All methods are within their respective targets.'
+        :'The following method(s) exceed their targets: '+cycExceeded.map(m=>m.method.replace(' Solicitation','')).join(', ')+'.');
     const savMsg=kpi2.net>0
       ?`Procurement savings for the period total <strong>${fmtUSD(kpi2.net)}</strong> against estimated values, reflecting effective market engagement and negotiation by the team.`
       :`The net savings position for the period stands at <strong>${fmtUSD(kpi2.net)}</strong>, suggesting that final contracted values exceeded initial estimates in some cases.`;
@@ -1206,9 +1237,9 @@ function generateReport(){
 
   // ── Key observations ──────────────────────────────────────────────
   const obs=[];
-  if(cycleRag==='green') obs.push({icon:'✓',col:'#16a34a',text:`Cycle time (${avgCycle}d) is ${cycleTgt-avgCycle}d below the ${cycleTgt}-day target.`});
-  if(cycleRag==='amber') obs.push({icon:'⚠',col:'#d97706',text:`Cycle time (${avgCycle}d) slightly exceeds target — review highest-delay methods.`});
-  if(cycleRag==='red')   obs.push({icon:'✗',col:'#dc2626',text:`Cycle time (${avgCycle}d) significantly above target (${cycleTgt}d) — immediate process review recommended.`});
+  if(cycleRag==='green') obs.push({icon:'✓',col:'#16a34a',text:'All procurement methods are within their cycle time targets.'});
+  if(cycleRag==='amber') obs.push({icon:'⚠',col:'#d97706',text:'One or more methods are approaching their cycle time targets — monitor closely.'});
+  if(cycleRag==='red'){const over=K.kpi1.filter(m=>m.avg>(RPT_CYCLE_CD[m.method]||80));obs.push({icon:'✗',col:'#dc2626',text:'Cycle time target exceeded: '+over.map(m=>m.method.replace(' Solicitation','')+'('+m.avg+'d vs '+(RPT_CYCLE_CD[m.method]||80)+'d target)').join(', ')+'.'});}
   if(savRag==='green')   obs.push({icon:'✓',col:'#16a34a',text:`Net savings of ${fmtUSD(kpi2.net)} demonstrate strong value-for-money.`});
   if(savRag==='red')     obs.push({icon:'✗',col:'#dc2626',text:`Negative net savings (${fmtUSD(kpi2.net)}) — review estimate accuracy and negotiation outcomes.`});
   if(compRag==='green')  obs.push({icon:'✓',col:'#16a34a',text:`Competitive procurement at ${compPct}% meets the ${compTgt}% target.${k3improving?' Trend is improving.':''}`});
@@ -1222,7 +1253,7 @@ function generateReport(){
 
   // ── Recommended actions (only when issues exist) ──────────────────
   const actions=[];
-  if(cycleRag!=='green') actions.push('Conduct a root-cause analysis of the highest-delay solicitation methods and introduce process milestones to track progress.');
+  if(cycleRag!=='green') actions.push('Conduct a root-cause analysis of methods exceeding their cycle time targets and introduce process milestones to track progress.');
   if(compRag!=='green'&&!k3improving) actions.push('Review procurement modality selection criteria. Ensure LTA utilisation is maximised before resorting to direct procurement.');
   if(planRag!=='green') actions.push('Strengthen the annual procurement planning cycle: engage programme teams earlier in the planning process to increase PR predictability.');
   if(wlRag!=='green') actions.push('Assess current staffing levels against pipeline volume. Consider temporary support or workload redistribution across the procurement team.');
@@ -1302,7 +1333,7 @@ function generateReport(){
   <h2 style="margin-top:28px;">Key Performance Indicators</h2>
   <div class="kpi-grid">
     ${kpiCard('1','Procurement Cycle Time','','',cycleRag,
-      K.kpi1.length?'Overall portfolio average: '+avgCycle+'d (target: '+cycleTgt+'d).':'No cycle data.',
+      K.kpi1.length?'Targets: Formal 80d · LTA 10d · Informal 6wd':'No cycle data.',
       rptCycBreakdown
     )}
     ${kpiCard('2','Procurement Savings',fmtUSD(kpi2.net),'Positive',savRag,
@@ -1506,7 +1537,7 @@ initMcd('mcd-project', DASHBOARD_DATA.projects, 'projects', 'All Projects');
     wrap.appendChild(p);
   });
 })();
-// KPI 1 method filter – multi-select (local to trend chart only)
+// KPI 1 method filter – single-select (radio), like KPI 6
 (function(){
   const wrap=document.getElementById('pills-kpi1method');
   const all=document.createElement('button');
@@ -1523,11 +1554,10 @@ initMcd('mcd-project', DASHBOARD_DATA.projects, 'projects', 'All Projects');
     p.className='pill'; p.textContent=method;
     p.onclick=()=>{
       const wasOn=kpi1MethodSel.has(method);
-      if(wasOn) kpi1MethodSel.delete(method);
-      else kpi1MethodSel.add(method);
-      p.classList.toggle('on',!wasOn);
-      if(kpi1MethodSel.size===0) all.classList.add('on');
-      else all.classList.remove('on');
+      kpi1MethodSel.clear();
+      wrap.querySelectorAll('.pill').forEach(q=>q.classList.remove('on'));
+      if(!wasOn){ kpi1MethodSel.add(method); p.classList.add('on'); }
+      else all.classList.add('on');
       if(lastKpi1Trend) renderCycleTrend(lastKpi1Trend);
     };
     wrap.appendChild(p);
