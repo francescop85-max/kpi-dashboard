@@ -680,6 +680,7 @@ function generateHTML(data) {
     </div>
   </div>
   <div style="display:flex;align-items:center;gap:12px;">
+    <button class="print-btn" onclick="openAbout()" style="background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.35);">ℹ About</button>
     <button class="print-btn" onclick="window.print()">🖨️ Print / PDF</button>
     <label class="toggle-wrap" title="Toggle dark mode">
       <span style="font-size:13px;">☀️</span>
@@ -821,6 +822,48 @@ function generateHTML(data) {
 <footer>Data source: FAO Ukraine Procurement Tracking SharePoint List &nbsp;·&nbsp; Refreshed daily via GitHub Actions</footer>
 
 <!-- ── MODAL ── -->
+<!-- ── ABOUT MODAL ── -->
+<div id="about-ov" role="dialog" aria-modal="true" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:200;align-items:center;justify-content:center;">
+  <div style="background:var(--card);border-radius:16px;max-width:92vw;width:820px;max-height:90vh;overflow-y:auto;padding:32px 36px;position:relative;box-shadow:0 20px 60px rgba(0,0,0,.25);">
+    <button onclick="closeAbout()" aria-label="Close" style="position:absolute;top:14px;right:18px;font-size:22px;cursor:pointer;color:var(--muted);background:none;border:none;">&times;</button>
+    <!-- Purpose -->
+    <div style="display:flex;align-items:center;gap:14px;margin-bottom:20px;">
+      <div style="background:var(--navy);border-radius:10px;padding:10px 14px;flex-shrink:0;">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      </div>
+      <div>
+        <div style="font-size:18px;font-weight:800;color:var(--navy);letter-spacing:-.3px;">About this Dashboard</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px;">FAO Ukraine · Procurement Performance</div>
+      </div>
+    </div>
+    <p style="font-size:13.5px;line-height:1.7;color:var(--text);margin-bottom:26px;padding-bottom:22px;border-bottom:1px solid var(--border);">
+      This dashboard monitors the procurement performance of the FAO Ukraine office, tracking key efficiency and compliance indicators across all Purchase Requests (PRs) managed by the procurement team. It is designed to support management oversight, identify bottlenecks, and demonstrate accountability in the use of project funds.
+    </p>
+    <!-- KPI grid -->
+    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.9px;color:var(--muted);margin-bottom:14px;">Performance Indicators</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+      ${[
+        ['1','Procurement Cycle Time','Measures the average number of days between receipt of a Purchase Request and issuance of the Purchase Order. A shorter cycle time reflects a more efficient procurement process. The target is 60 days. Tracked monthly by solicitation method to identify where delays concentrate.'],
+        ['2','Procurement Savings','Tracks the financial savings achieved by the procurement team, calculated as the difference between the requisitioner\'s estimated budget and the final contracted amount. Positive savings indicate effective market engagement and negotiation. Reported monthly with cumulative totals.'],
+        ['3','Competitive vs Direct Procurement','Shows what proportion of PRs were processed through a competitive solicitation process (formal tender or existing LTA) versus direct/informal procurement. A higher share of competitive procurement reflects stronger value-for-money practices and compliance with FAO procurement rules.'],
+        ['4','Procurement Plan Compliance','Measures whether PRs were anticipated in FAO\'s annual procurement plan. A higher share of planned procurement signals stronger budget forecasting and reduces reactive, emergency procurement. Tracked only for the period since plan monitoring was introduced.'],
+        ['5','Team Workload','Monitors the average number of active PRs managed per procurement officer, compared to a standard target of 15 PRs per buyer. This KPI supports staffing decisions and helps flag periods of excessive workload that may affect processing quality or speed.'],
+        ['6','Solicitation Preparation Time','Measures the average number of days between assignment of a PR to a procurement officer and issuance of the solicitation document. This isolates the internal preparation phase of the process and helps identify bottlenecks in document drafting and approvals.'],
+      ].map(([n,title,desc])=>`
+      <div style="border:1px solid var(--border);border-radius:10px;padding:16px 18px;display:flex;gap:14px;align-items:flex-start;">
+        <div style="background:var(--navy);color:#fff;font-size:13px;font-weight:800;border-radius:8px;min-width:30px;height:30px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">${n}</div>
+        <div>
+          <div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:5px;">KPI ${n} – ${title}</div>
+          <div style="font-size:11.5px;color:var(--muted);line-height:1.6;">${desc}</div>
+        </div>
+      </div>`).join('')}
+    </div>
+    <div style="margin-top:22px;padding-top:16px;border-top:1px solid var(--border);font-size:11px;color:var(--muted);text-align:center;">
+      Data source: FAO Ukraine Procurement Tracking SharePoint List &nbsp;·&nbsp; Refreshed daily
+    </div>
+  </div>
+</div>
+
 <div id="modal-ov" role="dialog" aria-modal="true">
   <div id="modal-box">
     <button id="modal-close" onclick="closeModal()" aria-label="Close">&times;</button>
@@ -1498,8 +1541,11 @@ function openModal(title,html){
   document.getElementById('modal-ov').classList.add('open');
 }
 function closeModal(){ document.getElementById('modal-ov').classList.remove('open'); }
+function openAbout(){ const el=document.getElementById('about-ov'); el.style.display='flex'; }
+function closeAbout(){ document.getElementById('about-ov').style.display='none'; }
+document.getElementById('about-ov').addEventListener('click',e=>{ if(e.target===document.getElementById('about-ov'))closeAbout(); });
 document.getElementById('modal-ov').addEventListener('click',e=>{ if(e.target===document.getElementById('modal-ov'))closeModal(); });
-document.addEventListener('keydown',e=>{ if(e.key==='Escape')closeModal(); });
+document.addEventListener('keydown',e=>{ if(e.key==='Escape'){ closeModal(); closeAbout(); } });
 
 // ── Export PNG ─────────────────────────────────────────────────────
 function exportChart(id){
