@@ -615,21 +615,22 @@ function renderComp3Trend(trend){
   const trendUp=slope>0;
   const trendColor=trendUp?'#22c55e':'#ef4444';
   mou('chart-comp-trend',{type:'bar',data:{labels,datasets:[
-    {type:'bar',label:'Competitive',data:compPcts,backgroundColor:'rgba(0,51,102,.75)',stack:'s',order:2},
-    {type:'bar',label:'Direct',data:trend.map(d=>d.dirPct),backgroundColor:'rgba(158,202,225,.75)',stack:'s',order:2},
-    {type:'line',label:'Target (70%)',data:trend.map(()=>70),borderColor:'#f59e0b',borderWidth:1.5,borderDash:[6,4],pointRadius:0,fill:false,order:0,tension:0,stack:undefined},
+    {type:'bar',label:'Competitive',data:compPcts,backgroundColor:'rgba(0,51,102,.75)',stack:'s',order:2,yAxisID:'y'},
+    {type:'bar',label:'Direct',data:trend.map(d=>d.dirPct),backgroundColor:'rgba(158,202,225,.75)',stack:'s',order:2,yAxisID:'y'},
+    {type:'line',label:'Target (70%)',data:trend.map(()=>70),borderColor:'#f59e0b',borderWidth:1.5,borderDash:[6,4],pointRadius:0,fill:false,order:0,tension:0,yAxisID:'y2'},
     {type:'line',label:`Trend (${trendUp?'↑ improving':'↓ declining'})`,data:regLine,
-     borderColor:trendColor,borderWidth:2.5,borderDash:[],pointRadius:0,fill:false,order:1,tension:0,stack:undefined},
+     borderColor:trendColor,borderWidth:2.5,pointRadius:0,fill:false,order:1,tension:0,yAxisID:'y2'},
   ]},options:{responsive:true,
-    plugins:{legend:{labels:{color:tc(),filter:i=>i.text!==undefined}},datalabels:{display:false},
+    plugins:{legend:{labels:{color:tc()}},datalabels:{display:false},
       tooltip:{callbacks:{label:ctx=>{
-        if(ctx.dataset.type==='line') return` ${ctx.dataset.label}: ${ctx.parsed.y}%`;
+        if(ctx.dataset.yAxisID==='y2') return` ${ctx.dataset.label}: ${ctx.parsed.y}%`;
         const count=ctx.datasetIndex===0?trend[ctx.dataIndex].formal+trend[ctx.dataIndex].lta:trend[ctx.dataIndex].dir;
         return` ${ctx.dataset.label}: ${ctx.parsed.y}% (${count} PRs)`;
       }}}},
     scales:{
       x:{stacked:true,grid:{color:gc()},ticks:{color:tc(),maxRotation:45}},
-      y:{stacked:true,grid:{color:gc()},ticks:{color:tc(),callback:v=>v+'%'},max:100,title:{display:true,text:'% of PRs',color:tc()}},
+      y:{stacked:true,grid:{color:gc()},ticks:{color:tc(),callback:v=>v+'%'},min:0,max:100,title:{display:true,text:'% of PRs',color:tc()}},
+      y2:{display:false,min:0,max:100},
     },
     onHover:(e,el)=>{ e.native.target.style.cursor=el.length&&el[0].datasetIndex<2?'pointer':'default'; },
     onClick:(_e,el)=>{
@@ -663,21 +664,22 @@ function renderPlan4Trend(trend){
   const trendUp4=slope4>0;
   const trendColor4=trendUp4?'#22c55e':'#ef4444';
   mou('chart-plan-trend',{type:'bar',data:{labels,datasets:[
-    {type:'bar',label:'Planned',data:pPct,backgroundColor:'rgba(0,51,102,.75)',stack:'s',order:2},
-    {type:'bar',label:'Unplanned',data:uPct,backgroundColor:'rgba(192,57,43,.75)',stack:'s',order:2},
-    {type:'line',label:'Target (70%)',data:tracked.map(()=>70),borderColor:'#f59e0b',borderWidth:1.5,borderDash:[6,4],pointRadius:0,fill:false,order:0,tension:0,stack:undefined},
+    {type:'bar',label:'Planned',data:pPct,backgroundColor:'rgba(0,51,102,.75)',stack:'s',order:2,yAxisID:'y'},
+    {type:'bar',label:'Unplanned',data:uPct,backgroundColor:'rgba(192,57,43,.75)',stack:'s',order:2,yAxisID:'y'},
+    {type:'line',label:'Target (70%)',data:tracked.map(()=>70),borderColor:'#f59e0b',borderWidth:1.5,borderDash:[6,4],pointRadius:0,fill:false,order:0,tension:0,yAxisID:'y2'},
     {type:'line',label:`Trend (${trendUp4?'↑ improving':'↓ declining'})`,data:regLine4,
-     borderColor:trendColor4,borderWidth:2.5,pointRadius:0,fill:false,order:1,tension:0,stack:undefined},
+     borderColor:trendColor4,borderWidth:2.5,pointRadius:0,fill:false,order:1,tension:0,yAxisID:'y2'},
   ]},options:{responsive:true,
     plugins:{legend:{labels:{color:tc()}},datalabels:{display:false},
       tooltip:{callbacks:{label:ctx=>{
-        if(ctx.dataset.type==='line') return` ${ctx.dataset.label}: ${ctx.parsed.y}%`;
+        if(ctx.dataset.yAxisID==='y2') return` ${ctx.dataset.label}: ${ctx.parsed.y}%`;
         const count=ctx.datasetIndex===0?tracked[ctx.dataIndex].planned:tracked[ctx.dataIndex].unplanned;
         return` ${ctx.dataset.label}: ${ctx.parsed.y}% (${count} PRs)`;
       }}}},
     scales:{
       x:{stacked:true,grid:{color:gc()},ticks:{color:tc(),maxRotation:45}},
-      y:{stacked:true,grid:{color:gc()},ticks:{color:tc(),callback:v=>v+'%'},max:100,title:{display:true,text:'% of tracked PRs',color:tc()}},
+      y:{stacked:true,grid:{color:gc()},ticks:{color:tc(),callback:v=>v+'%'},min:0,max:100,title:{display:true,text:'% of tracked PRs',color:tc()}},
+      y2:{display:false,min:0,max:100},
     },
     onHover:(e,el)=>{ e.native.target.style.cursor=el.length&&el[0].datasetIndex<2?'pointer':'default'; },
     onClick:(_e,el)=>{
