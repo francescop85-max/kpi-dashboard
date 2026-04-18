@@ -1109,23 +1109,40 @@ function renderCards(K, total) {
   const prp2=last2(K.kpi6Trend&&K.kpi6Trend.data);
   const prpDelta=prp2&&prp2[0].avg&&prp2[1].avg?prp2[1].avg-prp2[0].avg:null;
 
+  // Helper: inline row-level delta arrow (no background pill, very compact)
+  function rowDelta(delta,goodDown){
+    if(delta===null||delta===undefined||isNaN(delta)) return '';
+    const good=goodDown?delta<0:delta>0;
+    const col=delta===0?'#94a3b8':good?'#16a34a':'#dc2626';
+    const arrow=delta>0?'▲':delta<0?'▼':'→';
+    return '<span style="font-size:10px;font-weight:700;color:'+col+';margin-left:5px;">'+arrow+Math.abs(delta)+'d</span>';
+  }
+
   // Per-method cycle time breakdown rows (dashboard card)
+  const cycMthPrev = cyc2 ? cyc2[0].byMethod : {};
+  const cycMthLast = cyc2 ? cyc2[1].byMethod : {};
   const cycBreakdown = kpi1.length ? kpi1.map(m => {
     const mc = m.avg > target ? (m.avg > target*1.25 ? 'var(--red)' : 'var(--amber)') : 'var(--blue)';
     const sn = m.method.replace(' Solicitation','');
+    const prev = cycMthPrev[m.method]; const curr = cycMthLast[m.method];
+    const rd = (prev!=null&&curr!=null) ? rowDelta(curr-prev,true) : '';
     return '<div style="display:flex;justify-content:space-between;align-items:baseline;padding:3px 0;border-bottom:1px solid var(--border);">'
       +'<span style="font-size:11px;color:var(--text-muted);">'+sn+'</span>'
-      +'<span style="font-size:16px;font-weight:700;color:'+mc+'">'+m.avg+'d</span></div>';
+      +'<span style="display:flex;align-items:baseline;"><span style="font-size:16px;font-weight:700;color:'+mc+'">'+m.avg+'d</span>'+rd+'</span></div>';
   }).join('') : '';
 
   // Per-method prep time breakdown rows (dashboard card)
+  const prpMthPrev = prp2 ? prp2[0].byMethod : {};
+  const prpMthLast = prp2 ? prp2[1].byMethod : {};
   const prepBreakdown = kpi6.length ? kpi6.map(m => {
     const ptgt = PREP_CD[m.method]||10;
     const mc = m.avg > ptgt*1.5 ? 'var(--red)' : m.avg > ptgt ? 'var(--amber)' : 'var(--blue)';
     const sn = m.method.replace(' Solicitation','');
+    const prev = prpMthPrev[m.method]; const curr = prpMthLast[m.method];
+    const rd = (prev!=null&&curr!=null) ? rowDelta(curr-prev,true) : '';
     return '<div style="display:flex;justify-content:space-between;align-items:baseline;padding:3px 0;border-bottom:1px solid var(--border);">'
       +'<span style="font-size:11px;color:var(--text-muted);">'+sn+'</span>'
-      +'<span style="font-size:16px;font-weight:700;color:'+mc+'">'+m.avg+'d</span></div>';
+      +'<span style="display:flex;align-items:baseline;"><span style="font-size:16px;font-weight:700;color:'+mc+'">'+m.avg+'d</span>'+rd+'</span></div>';
   }).join('') : '';
 
   const narr = [
@@ -1145,10 +1162,10 @@ function renderCards(K, total) {
   const bgOf = col => col==='var(--red)'?'rgba(239,68,68,.07)':col==='var(--amber)'?'rgba(245,158,11,.07)':'';
   const cards = [
     { lbl:'Total PRs',   val:fmt(total),        sub:'in selection',                                    col:'var(--navy)', delta:deltaBadge(prDelta,true,'') },
-    { lbl:'Cycle Time',  breakdown:cycBreakdown, sub:'by method',                                      col:cycCol,        delta:deltaBadge(cycDelta2,false,'d') },
+    { lbl:'Cycle Time',  breakdown:cycBreakdown, sub:'by method',                                      col:cycCol,        delta:'' },
     { lbl:'Net Savings', val:fmtUSD(kpi2.net),  sub:'vs estimated value',                              col:savCol,        delta:deltaBadge(savDelta,true,'',v=>fmtUSD(v)) },
     { lbl:'Competitive', val:compPct+'%',         sub:fmt(kpi3.compCount)+' of '+fmt(compBase)+' PRs', col:cmpCol,        delta:deltaBadge(cmpDelta,true,'pp') },
-    { lbl:'Prep Time',   breakdown:prepBreakdown, sub:'PR assigned → solicitation',                    col:prepCol,       delta:deltaBadge(prpDelta,false,'d') },
+    { lbl:'Prep Time',   breakdown:prepBreakdown, sub:'PR assigned → solicitation',                    col:prepCol,       delta:'' },
   ];
   document.getElementById('kpi-row').innerHTML = cards.map((c,i) => \`
     <div class="kpi-card" style="border-left-color:\${c.col};\${bgOf(c.col)?'background:'+bgOf(c.col)+';':''}">
