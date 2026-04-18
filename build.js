@@ -766,9 +766,9 @@ function generateHTML(data) {
     <div class="chart-card">
       <button class="export-btn" onclick="exportChart('chart-plan')">PNG</button>
       <div class="chart-title">KPI 4 – Plan Compliance</div>
-      <div class="kpi-desc">Tracks whether each PR was anticipated in FAO's procurement planning module. A higher share of planned PRs reflects stronger forecasting and budget discipline.</div>
+      <div class="kpi-desc">Tracks whether each PR was anticipated in FAO's procurement planning module. Only PRs recorded after plan tracking began are included — earlier records (N/A) are excluded from the calculation.</div>
       <canvas id="chart-plan"></canvas>
-      <div class="disclaimer">&#9432; Each PR is reviewed against FAO's procurement planning module and categorised as <strong>Planned</strong> (included in the approved plan), <strong>Unplanned</strong> (not anticipated), or <strong>N/A</strong> — for procurement activities that could not reasonably have been foreseen in advance, or for which a planning system was not available at the time.</div>
+      <div class="disclaimer">&#9432; Only PRs with a Planned or Unplanned classification are included. Records pre-dating the introduction of procurement plan tracking are excluded from this KPI.</div>
     </div>
   </div>
 
@@ -1157,24 +1157,28 @@ function renderComp3Trend(trend){
 // ── KPI 4 trend ───────────────────────────────────────────────────
 function renderPlan4Trend(trend){
   if(!trend||!trend.length) return;
-  const labels=trend.map(d=>{ const[y,mo]=d.month.split('-'); return new Date(+y,+mo-1).toLocaleString('en',{month:'short',year:'2-digit'}); });
+  // Exclude months where no plan data exists (all N/A)
+  const tracked=trend.filter(d=>d.planned+d.unplanned>0);
+  if(!tracked.length) return;
+  const labels=tracked.map(d=>{ const[y,mo]=d.month.split('-'); return new Date(+y,+mo-1).toLocaleString('en',{month:'short',year:'2-digit'}); });
+  // Recompute % from Planned+Unplanned only (exclude N/A from denominator)
+  const pPct=tracked.map(d=>{ const t=d.planned+d.unplanned; return t?Math.round(100*d.planned/t):0; });
+  const uPct=tracked.map(d=>{ const t=d.planned+d.unplanned; return t?Math.round(100*d.unplanned/t):0; });
   mou('chart-plan-trend',{type:'bar',data:{labels,datasets:[
-    {label:'Planned',data:trend.map(d=>d.plannedPct),backgroundColor:'rgba(0,51,102,.75)',stack:'s'},
-    {label:'Unplanned',data:trend.map(d=>d.unplannedPct),backgroundColor:'rgba(192,57,43,.75)',stack:'s'},
-    {label:'N/A',data:trend.map(d=>d.naPct),backgroundColor:'rgba(158,202,225,.75)',stack:'s'},
+    {label:'Planned',data:pPct,backgroundColor:'rgba(0,51,102,.75)',stack:'s'},
+    {label:'Unplanned',data:uPct,backgroundColor:'rgba(192,57,43,.75)',stack:'s'},
   ]},options:{responsive:true,
     plugins:{legend:{labels:{color:tc()}},datalabels:{display:false},
-      tooltip:{callbacks:{label:ctx=>{const keys=['planned','unplanned','na'];return\` \${ctx.dataset.label}: \${ctx.parsed.y}% (\${trend[ctx.dataIndex][keys[ctx.datasetIndex]]} PRs)\`;} }}},
+      tooltip:{callbacks:{label:ctx=>{const count=ctx.datasetIndex===0?tracked[ctx.dataIndex].planned:tracked[ctx.dataIndex].unplanned;return\` \${ctx.dataset.label}: \${ctx.parsed.y}% (\${count} PRs)\`;} }}},
     scales:{
       x:{stacked:true,grid:{color:gc()},ticks:{color:tc(),maxRotation:45}},
-      y:{stacked:true,grid:{color:gc()},ticks:{color:tc(),callback:v=>v+'%'},max:100,title:{display:true,text:'% of PRs',color:tc()}},
+      y:{stacked:true,grid:{color:gc()},ticks:{color:tc(),callback:v=>v+'%'},max:100,title:{display:true,text:'% of tracked PRs',color:tc()}},
     },
     onHover:(e,el)=>{ e.native.target.style.cursor=el.length?'pointer':'default'; },
     onClick:(_e,el)=>{
       if(!el.length) return;
-      const month=trend[el[0].index].month;
-      const buckets=['Planned','Unplanned','N/A'];
-      const b=buckets[el[0].datasetIndex];
+      const month=tracked[el[0].index].month;
+      const b=el[0].datasetIndex===0?'Planned':'Unplanned';
       const rows=filteredRows().filter(r=>(r.prReceived||r.poDate||'').startsWith(month)&&r.planBucket===b);
       openModal(\`KPI 4 – \${b} – \${month}\`,drillTable(rows,['id','title','buyer','method','prReceived','prValue','stage']));
     },
@@ -1361,12 +1365,12 @@ function renderCharts(K){
     }
   }});
 
-  // Chart 4: Plan compliance pie (blue palette) with in-slice labels
-  const pLabels=['Planned','Unplanned','N/A'];
+  // Chart 4: Plan compliance pie — exclude N/A (pre-dates plan tracking)
+  const pLabels=['Planned','Unplanned'];
   const pTot=pLabels.reduce((a,l)=>a+kpi4.planCounts[l],0);
   mou('chart-plan',{type:'pie',data:{
     labels:pLabels,
-    datasets:[{data:pLabels.map(l=>kpi4.planCounts[l]),backgroundColor:['#003366','#c0392b','#9ecae1'],hoverOffset:6}]
+    datasets:[{data:pLabels.map(l=>kpi4.planCounts[l]),backgroundColor:['#003366','#c0392b'],hoverOffset:6}]
   },options:{responsive:true,plugins:{
     legend:{position:'bottom',labels:{color:tc()}},
     tooltip:{callbacks:{label:ctx=>{
