@@ -603,19 +603,36 @@ function renderWorkload(kpi5){
 function renderComp3Trend(trend){
   if(!trend||!trend.length) return;
   const labels=trend.map(d=>{ const[y,mo]=d.month.split('-'); return new Date(+y,+mo-1).toLocaleString('en',{month:'short',year:'2-digit'}); });
+  const compPcts=trend.map(d=>d.compPct);
+  // Linear regression over competitive %
+  const n=compPcts.length;
+  const xs=compPcts.map((_,i)=>i);
+  const mx=xs.reduce((a,b)=>a+b,0)/n;
+  const my=compPcts.reduce((a,b)=>a+b,0)/n;
+  const slope=xs.reduce((a,x,i)=>a+(x-mx)*(compPcts[i]-my),0)/xs.reduce((a,x)=>a+(x-mx)**2,0);
+  const intercept=my-slope*mx;
+  const regLine=xs.map(x=>Math.round(Math.min(100,Math.max(0,intercept+slope*x))));
+  const trendUp=slope>0;
+  const trendColor=trendUp?'#22c55e':'#ef4444';
   mou('chart-comp-trend',{type:'bar',data:{labels,datasets:[
-    {label:'Competitive',data:trend.map(d=>d.compPct),backgroundColor:'rgba(0,51,102,.75)',stack:'s'},
-    {label:'Direct',data:trend.map(d=>d.dirPct),backgroundColor:'rgba(158,202,225,.75)',stack:'s'},
+    {type:'bar',label:'Competitive',data:compPcts,backgroundColor:'rgba(0,51,102,.75)',stack:'s',order:2},
+    {type:'bar',label:'Direct',data:trend.map(d=>d.dirPct),backgroundColor:'rgba(158,202,225,.75)',stack:'s',order:2},
+    {type:'line',label:`Trend (${trendUp?'↑ improving':'↓ declining'})`,data:regLine,
+     borderColor:trendColor,borderWidth:2.5,borderDash:[],pointRadius:0,fill:false,order:1,tension:0,stack:undefined},
   ]},options:{responsive:true,
-    plugins:{legend:{labels:{color:tc()}},datalabels:{display:false},
-      tooltip:{callbacks:{label:ctx=>{const keys=['formal+lta','dir'];const count=ctx.datasetIndex===0?trend[ctx.dataIndex].formal+trend[ctx.dataIndex].lta:trend[ctx.dataIndex].dir;return` ${ctx.dataset.label}: ${ctx.parsed.y}% (${count} PRs)`;}}}},
+    plugins:{legend:{labels:{color:tc(),filter:i=>i.text!==undefined}},datalabels:{display:false},
+      tooltip:{callbacks:{label:ctx=>{
+        if(ctx.dataset.type==='line') return` Trend: ${ctx.parsed.y}%`;
+        const count=ctx.datasetIndex===0?trend[ctx.dataIndex].formal+trend[ctx.dataIndex].lta:trend[ctx.dataIndex].dir;
+        return` ${ctx.dataset.label}: ${ctx.parsed.y}% (${count} PRs)`;
+      }}}},
     scales:{
       x:{stacked:true,grid:{color:gc()},ticks:{color:tc(),maxRotation:45}},
       y:{stacked:true,grid:{color:gc()},ticks:{color:tc(),callback:v=>v+'%'},max:100,title:{display:true,text:'% of PRs',color:tc()}},
     },
-    onHover:(e,el)=>{ e.native.target.style.cursor=el.length?'pointer':'default'; },
+    onHover:(e,el)=>{ e.native.target.style.cursor=el.length&&el[0].datasetIndex<2?'pointer':'default'; },
     onClick:(_e,el)=>{
-      if(!el.length) return;
+      if(!el.length||el[0].datasetIndex>1) return;
       const month=trend[el[0].index].month;
       const isComp=el[0].datasetIndex===0;
       const rows=filteredRows().filter(r=>(r.prReceived||r.poDate||'').startsWith(month)&&(isComp?r.isCompetitive:!r.isCompetitive));
@@ -634,19 +651,35 @@ function renderPlan4Trend(trend){
   // Recompute % from Planned+Unplanned only (exclude N/A from denominator)
   const pPct=tracked.map(d=>{ const t=d.planned+d.unplanned; return t?Math.round(100*d.planned/t):0; });
   const uPct=tracked.map(d=>{ const t=d.planned+d.unplanned; return t?Math.round(100*d.unplanned/t):0; });
+  // Linear regression over planned %
+  const n4=pPct.length;
+  const xs4=pPct.map((_,i)=>i);
+  const mx4=xs4.reduce((a,b)=>a+b,0)/n4;
+  const my4=pPct.reduce((a,b)=>a+b,0)/n4;
+  const slope4=xs4.reduce((a,x,i)=>a+(x-mx4)*(pPct[i]-my4),0)/xs4.reduce((a,x)=>a+(x-mx4)**2,0);
+  const intercept4=my4-slope4*mx4;
+  const regLine4=xs4.map(x=>Math.round(Math.min(100,Math.max(0,intercept4+slope4*x))));
+  const trendUp4=slope4>0;
+  const trendColor4=trendUp4?'#22c55e':'#ef4444';
   mou('chart-plan-trend',{type:'bar',data:{labels,datasets:[
-    {label:'Planned',data:pPct,backgroundColor:'rgba(0,51,102,.75)',stack:'s'},
-    {label:'Unplanned',data:uPct,backgroundColor:'rgba(192,57,43,.75)',stack:'s'},
+    {type:'bar',label:'Planned',data:pPct,backgroundColor:'rgba(0,51,102,.75)',stack:'s',order:2},
+    {type:'bar',label:'Unplanned',data:uPct,backgroundColor:'rgba(192,57,43,.75)',stack:'s',order:2},
+    {type:'line',label:`Trend (${trendUp4?'↑ improving':'↓ declining'})`,data:regLine4,
+     borderColor:trendColor4,borderWidth:2.5,pointRadius:0,fill:false,order:1,tension:0,stack:undefined},
   ]},options:{responsive:true,
     plugins:{legend:{labels:{color:tc()}},datalabels:{display:false},
-      tooltip:{callbacks:{label:ctx=>{const count=ctx.datasetIndex===0?tracked[ctx.dataIndex].planned:tracked[ctx.dataIndex].unplanned;return` ${ctx.dataset.label}: ${ctx.parsed.y}% (${count} PRs)`;} }}},
+      tooltip:{callbacks:{label:ctx=>{
+        if(ctx.dataset.type==='line') return` Trend: ${ctx.parsed.y}%`;
+        const count=ctx.datasetIndex===0?tracked[ctx.dataIndex].planned:tracked[ctx.dataIndex].unplanned;
+        return` ${ctx.dataset.label}: ${ctx.parsed.y}% (${count} PRs)`;
+      }}}},
     scales:{
       x:{stacked:true,grid:{color:gc()},ticks:{color:tc(),maxRotation:45}},
       y:{stacked:true,grid:{color:gc()},ticks:{color:tc(),callback:v=>v+'%'},max:100,title:{display:true,text:'% of tracked PRs',color:tc()}},
     },
-    onHover:(e,el)=>{ e.native.target.style.cursor=el.length?'pointer':'default'; },
+    onHover:(e,el)=>{ e.native.target.style.cursor=el.length&&el[0].datasetIndex<2?'pointer':'default'; },
     onClick:(_e,el)=>{
-      if(!el.length) return;
+      if(!el.length||el[0].datasetIndex>1) return;
       const month=tracked[el[0].index].month;
       const b=el[0].datasetIndex===0?'Planned':'Unplanned';
       const rows=filteredRows().filter(r=>(r.prReceived||r.poDate||'').startsWith(month)&&r.planBucket===b);
