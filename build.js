@@ -1331,8 +1331,8 @@ function renderPrepTrend(trend){
     });
   }
 
-  // Add target line(s): one per active method when all shown, single when filtered
-  const targetMethods=selMethods.length?selMethods:Object.keys(PREP_TARGETS);
+  // Add target line(s) only when a method is selected (not for "All")
+  const targetMethods=selMethods.length?selMethods:[];
   targetMethods.forEach(method=>{
     const t=PREP_TARGETS[method]; if(!t) return;
     datasets.push({label:\`Target \${method} (\${t.wd} wd)\`,data:trend.months.map(()=>t.cd),
