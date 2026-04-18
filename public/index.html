@@ -617,12 +617,13 @@ function renderComp3Trend(trend){
   mou('chart-comp-trend',{type:'bar',data:{labels,datasets:[
     {type:'bar',label:'Competitive',data:compPcts,backgroundColor:'rgba(0,51,102,.75)',stack:'s',order:2},
     {type:'bar',label:'Direct',data:trend.map(d=>d.dirPct),backgroundColor:'rgba(158,202,225,.75)',stack:'s',order:2},
+    {type:'line',label:'Target (70%)',data:trend.map(()=>70),borderColor:'#f59e0b',borderWidth:1.5,borderDash:[6,4],pointRadius:0,fill:false,order:0,tension:0,stack:undefined},
     {type:'line',label:`Trend (${trendUp?'↑ improving':'↓ declining'})`,data:regLine,
      borderColor:trendColor,borderWidth:2.5,borderDash:[],pointRadius:0,fill:false,order:1,tension:0,stack:undefined},
   ]},options:{responsive:true,
     plugins:{legend:{labels:{color:tc(),filter:i=>i.text!==undefined}},datalabels:{display:false},
       tooltip:{callbacks:{label:ctx=>{
-        if(ctx.dataset.type==='line') return` Trend: ${ctx.parsed.y}%`;
+        if(ctx.dataset.type==='line') return` ${ctx.dataset.label}: ${ctx.parsed.y}%`;
         const count=ctx.datasetIndex===0?trend[ctx.dataIndex].formal+trend[ctx.dataIndex].lta:trend[ctx.dataIndex].dir;
         return` ${ctx.dataset.label}: ${ctx.parsed.y}% (${count} PRs)`;
       }}}},
@@ -664,12 +665,13 @@ function renderPlan4Trend(trend){
   mou('chart-plan-trend',{type:'bar',data:{labels,datasets:[
     {type:'bar',label:'Planned',data:pPct,backgroundColor:'rgba(0,51,102,.75)',stack:'s',order:2},
     {type:'bar',label:'Unplanned',data:uPct,backgroundColor:'rgba(192,57,43,.75)',stack:'s',order:2},
+    {type:'line',label:'Target (70%)',data:tracked.map(()=>70),borderColor:'#f59e0b',borderWidth:1.5,borderDash:[6,4],pointRadius:0,fill:false,order:0,tension:0,stack:undefined},
     {type:'line',label:`Trend (${trendUp4?'↑ improving':'↓ declining'})`,data:regLine4,
      borderColor:trendColor4,borderWidth:2.5,pointRadius:0,fill:false,order:1,tension:0,stack:undefined},
   ]},options:{responsive:true,
     plugins:{legend:{labels:{color:tc()}},datalabels:{display:false},
       tooltip:{callbacks:{label:ctx=>{
-        if(ctx.dataset.type==='line') return` Trend: ${ctx.parsed.y}%`;
+        if(ctx.dataset.type==='line') return` ${ctx.dataset.label}: ${ctx.parsed.y}%`;
         const count=ctx.datasetIndex===0?tracked[ctx.dataIndex].planned:tracked[ctx.dataIndex].unplanned;
         return` ${ctx.dataset.label}: ${ctx.parsed.y}% (${count} PRs)`;
       }}}},
@@ -754,49 +756,76 @@ function renderCycleTrend(trend){
 let lastKpi6Trend=null;
 let kpi6MethodSel=new Set();
 
+// Working-day targets per method (converted to approx. calendar days for chart axis)
+const PREP_TARGETS={
+  'Formal Solicitation': {wd:7, cd:10, color:'#003366', dash:[8,4]},
+  'Informal Solicitation':{wd:5, cd:7,  color:'#009FDA', dash:[5,3]},
+  'LTA':                  {wd:3, cd:4,  color:'#22c55e', dash:[3,3]},
+};
+
 function renderPrepTrend(trend){
   if(!trend||!trend.months.length) return;
-  const methods=[...kpi6MethodSel];
+  const selMethods=[...kpi6MethodSel];
   const labels=trend.months.map(m=>{
     const[y,mo]=m.split('-');
     return new Date(+y,+mo-1).toLocaleString('en',{month:'short',year:'2-digit'});
   });
+
+  // Determine active targets and point colour thresholds
+  const activeMethods=selMethods.length?selMethods:Object.keys(PREP_TARGETS);
+  // When single method selected use its target for colour coding; else use strictest (Formal)
+  const primaryTarget=selMethods.length===1&&PREP_TARGETS[selMethods[0]]
+    ? PREP_TARGETS[selMethods[0]]
+    : null;
+  const ptColor=v=>{
+    if(v===null) return'transparent';
+    const t=primaryTarget?primaryTarget.cd:10; // default to formal threshold when mixed
+    return v<=t?'#22c55e':v<=t*1.5?'#f59e0b':'#ef4444';
+  };
+
   let datasets;
-  if(!methods.length){
+  if(!selMethods.length){
     const pts=trend.data.map(d=>d.avg);
     datasets=[{label:'All Methods (avg)',data:pts,
       borderColor:'#0080c6',backgroundColor:'rgba(0,128,198,0.08)',
       borderWidth:2,pointRadius:5,tension:0.3,spanGaps:true,fill:true,
-      pointBackgroundColor:pts.map(v=>v===null?'transparent':v<=30?'#22c55e':v<=45?'#f59e0b':'#ef4444'),
-      pointBorderColor:pts.map(v=>v===null?'transparent':v<=30?'#22c55e':v<=45?'#f59e0b':'#ef4444')}];
+      pointBackgroundColor:pts.map(ptColor),pointBorderColor:pts.map(ptColor)}];
   } else {
-    datasets=methods.map((method,i)=>{
+    datasets=selMethods.map((method,i)=>{
       const color=KPI1_PALETTE[i%KPI1_PALETTE.length];
       const pts=trend.data.map(d=>d.byMethod[method]??null);
       return{label:method,data:pts,borderColor:color,backgroundColor:color+'18',
         borderWidth:2,pointRadius:4,tension:0.3,spanGaps:true,fill:false,
-        pointBackgroundColor:pts.map(v=>v===null?'transparent':v<=30?'#22c55e':v<=45?'#f59e0b':'#ef4444'),
-        pointBorderColor:pts.map(v=>v===null?'transparent':v<=30?'#22c55e':v<=45?'#f59e0b':'#ef4444')};
+        pointBackgroundColor:pts.map(ptColor),pointBorderColor:pts.map(ptColor)};
     });
   }
-  datasets.push({label:'Target (30d)',data:trend.months.map(()=>30),
-    borderColor:'#f59e0b',borderWidth:2,borderDash:[6,4],pointRadius:0,fill:false,tension:0});
+
+  // Add target line(s): one per active method when all shown, single when filtered
+  const targetMethods=selMethods.length?selMethods:Object.keys(PREP_TARGETS);
+  targetMethods.forEach(method=>{
+    const t=PREP_TARGETS[method]; if(!t) return;
+    datasets.push({label:`Target ${method} (${t.wd} wd)`,data:trend.months.map(()=>t.cd),
+      borderColor:t.color,borderWidth:1.5,borderDash:t.dash,pointRadius:0,fill:false,tension:0,order:0});
+  });
+
   mou('chart-prep-trend',{type:'line',data:{labels,datasets},options:{responsive:true,
     plugins:{
-      legend:{labels:{color:tc()}},
+      legend:{labels:{color:tc(),boxHeight:2}},
       datalabels:{display:false},
-      tooltip:{callbacks:{label:ctx=>ctx.parsed.y!==null?' '+Math.round(ctx.parsed.y)+'d':' No data'}},
+      tooltip:{callbacks:{label:ctx=>{
+        if(ctx.dataset.borderDash) return` ${ctx.dataset.label}: ${ctx.parsed.y}d`;
+        return ctx.parsed.y!==null?` ${Math.round(ctx.parsed.y)}d`:' No data';
+      }}},
     },
     scales:{
       x:{grid:{color:gc()},ticks:{color:tc(),maxRotation:45}},
       y:{grid:{color:gc()},ticks:{color:tc(),callback:v=>v+'d'},
-         title:{display:true,text:'Avg Prep Time (days)',color:tc()},suggestedMin:0},
+         title:{display:true,text:'Avg Prep Time (calendar days)',color:tc()},suggestedMin:0},
     },
     onHover:(e,el)=>{ e.native.target.style.cursor=el.length?'pointer':'default'; },
     onClick:(_e,el)=>{
       if(!el.length) return;
       const month=trend.months[el[0].index];
-      const selMethods=[...kpi6MethodSel];
       let rows=filteredRows().filter(r=>{
         if(!r.dateAssigned||!r.solIssued) return false;
         const days=Math.round((new Date(r.solIssued)-new Date(r.dateAssigned))/86400000);
