@@ -1479,54 +1479,58 @@ function computePhases(rows){
 function renderCyclePhases(rows){
   const phases=computePhases(rows);
   const methods=Object.keys(phases).sort();
-  if(!methods.length){CR['chart-cycle-phases']&&CR['chart-cycle-phases'].destroy();return;}
-  // Only show phases that have data in at least one method
-  const activePh=CYCLE_PHASES.filter(p=>methods.some(m=>phases[m][p.key]));
-  const datasets=activePh.map(p=>({
-    label:p.label,
-    data:methods.map(m=>(phases[m][p.key]||{avg:0}).avg),
-    backgroundColor:p.color+'cc',
-    borderColor:p.color,
-    borderWidth:1,
-    borderRadius:3,
-    phaseKey:p.key,
-  }));
-  mou('chart-cycle-phases',{type:'bar',data:{labels:methods,datasets},options:{
-    indexAxis:'y',
-    responsive:true,
-    maintainAspectRatio:false,
-    plugins:{
-      legend:{labels:{color:tc(),font:{size:11}}},
-      datalabels:{
-        display:ctx=>ctx.parsed.x>0,
-        color:'#fff',
-        font:{size:10,weight:'bold'},
-        formatter:v=>v>0?v+'d':'',
-        anchor:'center',align:'center',
-        clamp:true,
+  if(!methods.length){if(CR['chart-cycle-phases']){CR['chart-cycle-phases'].destroy();delete CR['chart-cycle-phases'];}return;}
+  const activePh=CYCLE_PHASES.filter(function(p){return methods.some(function(m){return phases[m][p.key];});});
+  if(!activePh.length) return;
+  const datasets=activePh.map(function(p){
+    return{
+      label:p.label,
+      data:methods.map(function(m){var info=phases[m][p.key];return info?info.avg:0;}),
+      backgroundColor:p.color+'bb',
+      borderColor:p.color,
+      borderWidth:1,
+      stack:'cycle',
+    };
+  });
+  if(CR['chart-cycle-phases']){CR['chart-cycle-phases'].destroy();delete CR['chart-cycle-phases'];}
+  CR['chart-cycle-phases']=new Chart(document.getElementById('chart-cycle-phases').getContext('2d'),{
+    type:'bar',
+    data:{labels:methods,datasets:datasets},
+    options:{
+      indexAxis:'y',
+      responsive:true,
+      maintainAspectRatio:false,
+      plugins:{
+        legend:{labels:{color:tc(),boxWidth:12,font:{size:11}}},
+        datalabels:{display:false},
+        tooltip:{callbacks:{
+          label:function(ctx){
+            var m=methods[ctx.dataIndex];
+            var ph=activePh[ctx.datasetIndex];
+            var info=phases[m]?phases[m][ph.key]:null;
+            if(!info) return null;
+            return ' '+ph.label+': '+info.avg+'d ('+info.count+' PRs)';
+          }
+        }},
       },
-      tooltip:{callbacks:{
-        label:ctx=>{
-          const m=methods[ctx.dataIndex];
-          const ph=activePh[ctx.datasetIndex];
-          const info=phases[m]&&phases[m][ph.key];
-          if(!info||!info.avg) return null;
-          return ' '+ph.label+': '+info.avg+'d ('+info.count+' records)';
-        },
-      }},
+      scales:{
+        x:{stacked:true,grid:{color:gc()},ticks:{color:tc(),callback:function(v){return v+'d';}},title:{display:true,text:'Average days',color:tc()}},
+        y:{stacked:true,grid:{color:gc()},ticks:{color:tc()}},
+      },
+      onClick:function(_e,el){
+        if(!el.length) return;
+        var mi=el[0].index; var di=el[0].datasetIndex;
+        var m=methods[mi]; var ph=activePh[di];
+        var rws=filteredRows().filter(function(r){
+          if(r.method!==m) return false;
+          var a=r[ph.from]; var b=r[ph.to];
+          if(!a||!b) return false;
+          return Math.round((new Date(b)-new Date(a))/86400000)>=0;
+        });
+        openModal('Phase: '+ph.label+' \u2013 '+m,drillTable(rws,['id','title','buyer','method',ph.from,ph.to,'cycleTime','stage']));
+      },
     },
-    scales:{
-      x:{stacked:true,grid:{color:gc()},ticks:{color:tc(),callback:v=>v+'d'},title:{display:true,text:'Average Days',color:tc()}},
-      y:{stacked:true,grid:{color:gc()},ticks:{color:tc()}},
-    },
-    onClick:(_e,el)=>{
-      if(!el.length) return;
-      const m=methods[el[0].index];
-      const ph=activePh[el[0].datasetIndex];
-      const rws=filteredRows().filter(r=>r.method===m&&r[ph.from]&&r[ph.to]&&Math.round((new Date(r[ph.to])-new Date(r[ph.from]))/86400000)>=0);
-      openModal(\`Phase: \${ph.label} – \${m}\`,drillTable(rws,['id','title','buyer','method',ph.from,ph.to,'cycleTime','stage']));
-    },
-  }});
+  });
 }
 
 // ── KPI 6 trend state ─────────────────────────────────────────────
