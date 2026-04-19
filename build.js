@@ -2115,6 +2115,7 @@ document.getElementById('theme-chk').addEventListener('change',function(){
 // ── Slicer pills ───────────────────────────────────────────────────
 function makePills(containerId,items,filterKey){
   const wrap=document.getElementById(containerId);
+  wrap.innerHTML='';
   // "All" pill
   const all=document.createElement('button');
   all.className='pill on'; all.textContent='All';
@@ -2139,6 +2140,7 @@ const MCD_STATE = {}; // id to Set of selected values
 function initMcd(wrapId, items, filterKey, labelAll) {
   MCD_STATE[wrapId] = new Set();
   const list = document.getElementById(wrapId + '-list');
+  list.innerHTML = '';
   items.forEach(item => {
     const div = document.createElement('div');
     div.className = 'mcd-item';
