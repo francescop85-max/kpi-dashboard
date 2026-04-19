@@ -2314,32 +2314,52 @@ function processUploadedCSV(text){
   const lastUpdated=modDates.length?modDates[modDates.length-1]:new Date().toISOString().slice(0,10);
   return{rows:processed,years,buyers,methods,projects,lastUpdated};
 }
+async function fetchAndReload(){
+  try{
+    const res=await fetch('/api/data');
+    if(!res.ok) return;
+    const d=await res.json();
+    DASHBOARD_DATA.rows=d.rows;
+    DASHBOARD_DATA.years=d.years;
+    DASHBOARD_DATA.buyers=d.buyers;
+    DASHBOARD_DATA.methods=d.methods;
+    DASHBOARD_DATA.projects=d.projects;
+    DASHBOARD_DATA.lastUpdated=d.lastUpdated;
+    AF={year:'',buyer:'',methods:new Set(),projects:new Set()};
+    kpi1MethodSel.clear(); kpi6MethodSel.clear();
+    initFilters();
+    refresh();
+  }catch(e){}
+}
 function handleCSVUpload(input){
   const file=input.files[0]; if(!file) return;
+  let secret=localStorage.getItem('kpi_upload_secret')||'';
+  if(!secret){secret=prompt('Enter upload password:');if(!secret){input.value='';return;}localStorage.setItem('kpi_upload_secret',secret);}
   const btn=document.getElementById('upload-btn');
-  btn.textContent='⏳ Loading…'; btn.disabled=true;
+  btn.textContent='⏳ Uploading…'; btn.disabled=true;
   const reader=new FileReader();
-  reader.onload=function(e){
+  reader.onload=async function(e){
     try{
-      const newData=processUploadedCSV(e.target.result);
-      DASHBOARD_DATA.rows=newData.rows;
-      DASHBOARD_DATA.years=newData.years;
-      DASHBOARD_DATA.buyers=newData.buyers;
-      DASHBOARD_DATA.methods=newData.methods;
-      DASHBOARD_DATA.projects=newData.projects;
-      DASHBOARD_DATA.lastUpdated=newData.lastUpdated;
-      AF={year:'',buyer:'',methods:new Set(),projects:new Set()};
-      kpi1MethodSel.clear(); kpi6MethodSel.clear();
-      initFilters();
-      refresh();
-      btn.textContent='✓ '+newData.rows.length+' PRs loaded';
-      btn.style.background='rgba(34,197,94,.35)';
-      document.getElementById('last-updated').textContent=newData.lastUpdated;
+      const res=await fetch('/api/upload',{
+        method:'POST',
+        headers:{'Content-Type':'text/csv','x-upload-secret':secret},
+        body:e.target.result,
+      });
+      if(res.status===401){
+        localStorage.removeItem('kpi_upload_secret');
+        btn.textContent='✗ Wrong password'; btn.style.background='rgba(220,38,38,.2)';
+        setTimeout(function(){btn.textContent='⬆ Upload CSV';btn.style.background='rgba(34,197,94,.2)';btn.disabled=false;},2500);
+        input.value=''; return;
+      }
+      if(!res.ok) throw new Error('Server error '+res.status);
+      const d=await res.json();
+      await fetchAndReload();
+      btn.textContent='✓ '+d.rows+' PRs saved'; btn.style.background='rgba(34,197,94,.35)';
       setTimeout(function(){btn.textContent='⬆ Upload CSV';btn.style.background='rgba(34,197,94,.2)';btn.disabled=false;},3000);
     }catch(err){
-      btn.textContent='✗ Parse error';btn.style.background='rgba(220,38,38,.2)';
+      btn.textContent='✗ Upload failed'; btn.style.background='rgba(220,38,38,.2)';
       setTimeout(function(){btn.textContent='⬆ Upload CSV';btn.style.background='rgba(34,197,94,.2)';btn.disabled=false;},3000);
-      console.error('CSV upload error:',err);
+      console.error('Upload error:',err);
     }
     input.value='';
   };
@@ -2410,6 +2430,8 @@ function initFilters(){
 }
 initFilters();
 refresh();
+// On load, silently pull latest uploaded data from server (if any)
+fetchAndReload();
 <\/script>
 </body>
 </html>`;
