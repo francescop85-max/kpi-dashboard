@@ -2216,8 +2216,8 @@ function refresh(){
 // ── Client-side CSV parser (mirrors build.js logic) ────────────────
 function clientParseCSV(text){
   const rows=[];let col=0,inQuote=false,field='',row=[];
-  text=text.replace(/^\uFEFF/,'');
-  text=text.replace(/\r\n/g,'\n').replace(/\r/g,'\n');
+  if(text.charCodeAt(0)===0xFEFF) text=text.slice(1);
+  text=text.split('\\r\\n').join('\\n').split('\\r').join('\\n');
   for(let i=0;i<text.length;i++){
     const ch=text[i],next=text[i+1];
     if(inQuote){
@@ -2227,7 +2227,7 @@ function clientParseCSV(text){
     }else{
       if(ch==='"') inQuote=true;
       else if(ch===','){row.push(field);field='';col++;}
-      else if(ch==='\n'){row.push(field);rows.push(row);row=[];field='';col=0;}
+      else if(ch.charCodeAt(0)===10){row.push(field);rows.push(row);row=[];field='';col=0;}
       else field+=ch;
     }
   }
