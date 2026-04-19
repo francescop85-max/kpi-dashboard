@@ -71,6 +71,8 @@ function fmtDate(d) {
 function parseCSV(text) {
   const rows = [];
   let col = 0, inQuote = false, field = '', row = [];
+  // Strip UTF-8 BOM (common in SharePoint CSV exports)
+  text = text.replace(/^\uFEFF/, '');
   text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
   for (let i = 0; i < text.length; i++) {
     const ch = text[i], next = text[i + 1];
@@ -192,12 +194,17 @@ export default async function handler(req, res) {
 
   try {
     const data = processCSV(csvText);
+    console.log(`Parsed CSV: ${data.rows.length} rows, methods: ${JSON.stringify(data.methods)}, lastUpdated: ${data.lastUpdated}`);
+    if (data.rows.length === 0) {
+      return res.status(400).json({ error: 'CSV parsed but produced 0 valid rows. Check column names match the SharePoint export format.' });
+    }
     await put('dashboard-data.json', JSON.stringify(data), {
       access: 'public',
       contentType: 'application/json',
       addRandomSuffix: false,
       allowOverwrite: true,
     });
+    console.log(`Saved to Blob: ${data.rows.length} rows`);
     return res.status(200).json({ ok: true, rows: data.rows.length, lastUpdated: data.lastUpdated });
   } catch (err) {
     console.error('Upload error:', err);

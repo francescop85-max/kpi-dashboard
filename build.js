@@ -2216,6 +2216,7 @@ function refresh(){
 // ── Client-side CSV parser (mirrors build.js logic) ────────────────
 function clientParseCSV(text){
   const rows=[];let col=0,inQuote=false,field='',row=[];
+  text=text.replace(/^\uFEFF/,'');
   text=text.replace(/\r\n/g,'\n').replace(/\r/g,'\n');
   for(let i=0;i<text.length;i++){
     const ch=text[i],next=text[i+1];
@@ -2319,6 +2320,7 @@ async function fetchAndReload(){
     const res=await fetch('/api/data');
     if(!res.ok) return;
     const d=await res.json();
+    if(!d.rows||!d.rows.length) return; // guard: never wipe dashboard with empty data
     DASHBOARD_DATA.rows=d.rows;
     DASHBOARD_DATA.years=d.years;
     DASHBOARD_DATA.buyers=d.buyers;
