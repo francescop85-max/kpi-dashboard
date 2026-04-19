@@ -2432,8 +2432,6 @@ function initFilters(){
 }
 initFilters();
 refresh();
-// On load, silently pull latest uploaded data from server (if any)
-fetchAndReload();
 <\/script>
 </body>
 </html>`;
