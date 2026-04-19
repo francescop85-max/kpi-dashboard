@@ -239,7 +239,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'CSV parsed but produced 0 valid rows. Check it is the SharePoint procurement tracking list export.' });
     }
     await put('dashboard-data.json', JSON.stringify(data), {
-      access: 'public',
+      access: 'private',
       contentType: 'application/json',
       addRandomSuffix: false,
       allowOverwrite: true,
