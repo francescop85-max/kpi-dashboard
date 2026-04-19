@@ -695,6 +695,8 @@ function generateHTML(data) {
     <button class="print-btn" onclick="openAbout()" style="background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.35);">ℹ About</button>
     <button class="print-btn" onclick="generateReport()" style="background:rgba(0,159,218,.25);border-color:#009FDA;">📊 Management Report</button>
     <button class="print-btn" onclick="window.print()">🖨️ Print / PDF</button>
+    <button class="print-btn" id="upload-btn" onclick="document.getElementById('csv-upload').click()" style="background:rgba(34,197,94,.2);border-color:#22c55e;" title="Upload a new CSV export from SharePoint to refresh the dashboard without rebuilding">⬆ Upload CSV</button>
+    <input type="file" id="csv-upload" accept=".csv" style="display:none;" onchange="handleCSVUpload(this)"/>
     <label class="toggle-wrap" title="Toggle dark mode">
       <span style="font-size:13px;">☀️</span>
       <input type="checkbox" id="theme-chk"/>
@@ -1736,12 +1738,32 @@ function openModal(title,html){
 function closeModal(){ document.getElementById('modal-ov').classList.remove('open'); }
 // ── Management Report Generator ───────────────────────────────────
 function generateReport(){
-  const rows=filteredRows();
-  const K=recompute(rows);
-  const avgCycle=K.avgCycle,kpi2=K.kpi2,kpi3=K.kpi3,kpi4=K.kpi4,kpi5=K.kpi5,avgAssignToSol=K.avgAssignToSol,kpi3Trend=K.kpi3Trend,kpi4Trend=K.kpi4Trend;
+  const allRows=filteredRows();
   const now=new Date();
   const reportDate=now.toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'});
-  const reportMonth=now.toLocaleDateString('en-GB',{month:'long',year:'numeric'});
+  // Quarter computation — always use last completed calendar quarter
+  const currentQ=Math.floor(now.getMonth()/3);
+  const currentYear=now.getFullYear();
+  let lastQ=currentQ-1,lastQYear=currentYear;
+  if(lastQ<0){lastQ=3;lastQYear=currentYear-1;}
+  let prevQ=lastQ-1,prevQYear=lastQYear;
+  if(prevQ<0){prevQ=3;prevQYear=lastQYear-1;}
+  const qMonthEnds=[31,28,31,30,31,30,31,31,30,31,30,31];
+  function qRange(q,y){
+    const sm=q*3,em=sm+2;
+    return{s:y+'-'+String(sm+1).padStart(2,'0')+'-01',e:y+'-'+String(em+1).padStart(2,'0')+'-'+String(qMonthEnds[em]).padStart(2,'0')};
+  }
+  const lastQFull='Q'+(lastQ+1)+' '+lastQYear;
+  const prevQFull='Q'+(prevQ+1)+' '+prevQYear;
+  const lqr=qRange(lastQ,lastQYear);
+  const pqr=qRange(prevQ,prevQYear);
+  const lastQRows=allRows.filter(function(r){var d=r.prReceived||r.poDate||'';return d>=lqr.s&&d<=lqr.e;});
+  const prevQRows=allRows.filter(function(r){var d=r.prReceived||r.poDate||'';return d>=pqr.s&&d<=pqr.e;});
+  const rows=lastQRows;
+  const K=recompute(lastQRows);
+  const KP=recompute(prevQRows);
+  const avgCycle=K.avgCycle,kpi2=K.kpi2,kpi3=K.kpi3,kpi4=K.kpi4,kpi5=K.kpi5,avgAssignToSol=K.avgAssignToSol,kpi3Trend=K.kpi3Trend,kpi4Trend=K.kpi4Trend;
+  const reportMonth=lastQFull;
 
   // ── Derived values ────────────────────────────────────────────────
   const compBase=kpi3.compCount+kpi3.dirCount;
@@ -1785,15 +1807,17 @@ function generateReport(){
 
   // ── Per-method breakdowns for report ─────────────────────────────
   const RPT_PREP_CD={'Formal Solicitation':10,'Informal Solicitation':7,'LTA':4};
-  const last2r=arr=>arr&&arr.length>=2?[arr[arr.length-2],arr[arr.length-1]]:null;
-  const cyc2r=last2r(K.kpi1Trend&&K.kpi1Trend.data);
-  const rptCycBreakdown=K.kpi1.map(m=>{
+  // Quarter-over-quarter lookups for deltas
+  const kpPrevCyc={};
+  KP.kpi1.forEach(function(m){kpPrevCyc[m.method]=m.avg;});
+  const kpPrevPrep={};
+  KP.kpi6.forEach(function(m){kpPrevPrep[m.method]=m.avg;});
+  const rptCycBreakdown=K.kpi1.map(function(m){
     const sn=m.method.replace(' Solicitation','');
     const tgt=RPT_CYCLE_CD[m.method]||80;
     const rc=m.avg>tgt?(m.avg>tgt*1.25?'#dc2626':'#d97706'):'#003366';
-    const prev=cyc2r?cyc2r[0].byMethod[m.method]:null;
-    const curr=cyc2r?cyc2r[1].byMethod[m.method]:null;
-    const delta=(prev!=null&&curr!=null)?curr-prev:null;
+    const prev=kpPrevCyc[m.method]!=null?kpPrevCyc[m.method]:null;
+    const delta=prev!=null?m.avg-prev:null;
     const darrow=delta===null?'':delta>0?'<span style="color:#dc2626;font-size:11px;font-weight:700;margin-left:4px;">▲'+delta+'d</span>':'<span style="color:#16a34a;font-size:11px;font-weight:700;margin-left:4px;">▼'+Math.abs(delta)+'d</span>';
     const tgtLabel=m.method==='Informal Solicitation'?'6wd':tgt+'d';
     return '<div style="display:flex;justify-content:space-between;align-items:baseline;padding:5px 0;border-bottom:1px solid #f1f5f9;">'
@@ -1801,14 +1825,12 @@ function generateReport(){
       +'<div style="text-align:right;"><span style="font-size:19px;font-weight:800;color:'+rc+'">'+m.avg+'d</span>'+darrow
       +'<span style="display:block;font-size:10px;color:#94a3b8;">target: '+tgtLabel+' · '+m.count+' PRs</span></div></div>';
   }).join('');
-  const prp2r=last2r(K.kpi6Trend&&K.kpi6Trend.data);
-  const rptPrepBreakdown=K.kpi6.map(m=>{
+  const rptPrepBreakdown=K.kpi6.map(function(m){
     const sn=m.method.replace(' Solicitation','');
     const ptgt=RPT_PREP_CD[m.method]||10;
     const rc=m.avg>ptgt*1.5?'#dc2626':m.avg>ptgt?'#d97706':'#003366';
-    const prev=prp2r?prp2r[0].byMethod[m.method]:null;
-    const curr=prp2r?prp2r[1].byMethod[m.method]:null;
-    const delta=(prev!=null&&curr!=null)?curr-prev:null;
+    const prev=kpPrevPrep[m.method]!=null?kpPrevPrep[m.method]:null;
+    const delta=prev!=null?m.avg-prev:null;
     const darrow=delta===null?'':delta>0?'<span style="color:#dc2626;font-size:11px;font-weight:700;margin-left:4px;">▲'+delta+'d</span>':'<span style="color:#16a34a;font-size:11px;font-weight:700;margin-left:4px;">▼'+Math.abs(delta)+'d</span>';
     return '<div style="display:flex;justify-content:space-between;align-items:baseline;padding:5px 0;border-bottom:1px solid #f1f5f9;">'
       +'<span style="font-size:12px;color:#64748b;">'+sn+'</span>'
@@ -1892,6 +1914,70 @@ function generateReport(){
       </div>
     </div>\`;
 
+  // ── Phase breakdown HTML (pure CSS stacked bars) ─────────────────
+  const lqPhases=computePhases(lastQRows);
+  const pqPhases=computePhases(prevQRows);
+  const RPT_PHASE_COLORS={'unassigned':'#94a3b8','solPrep':'#009FDA','marketOpen':'#3b82f6','offerReview':'#8b5cf6','techClear':'#f59e0b','awardProc':'#f97316','poIssuance':'#22c55e'};
+  const phaseBreakdownHtml=(function(){
+    const methods=Object.keys(lqPhases).sort();
+    if(!methods.length) return '<p style="font-size:12px;color:#94a3b8;font-style:italic;">No phase data available for '+lastQFull+'.</p>';
+    // Legend
+    var legend='<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;">';
+    CYCLE_PHASES.forEach(function(p){
+      legend+='<div style="display:flex;align-items:center;gap:4px;">'
+        +'<div style="width:10px;height:10px;border-radius:2px;background:'+RPT_PHASE_COLORS[p.key]+'bb;border:1px solid '+RPT_PHASE_COLORS[p.key]+';flex-shrink:0;"></div>'
+        +'<span style="font-size:10px;color:#64748b;">'+p.label+'</span></div>';
+    });
+    legend+='</div>';
+    var rows_html='';
+    methods.forEach(function(m){
+      var pdata=lqPhases[m]||{};
+      var prevData=pqPhases[m]||{};
+      var total=0;
+      CYCLE_PHASES.forEach(function(p){if(pdata[p.key])total+=pdata[p.key].avg;});
+      if(!total){rows_html+='<div style="margin-bottom:14px;"><div style="font-size:12px;font-weight:700;color:#334155;margin-bottom:5px;">'+m+'</div><div style="font-size:11px;color:#94a3b8;font-style:italic;">No phase data</div></div>';return;}
+      var prevTotal=0;
+      CYCLE_PHASES.forEach(function(p){if(prevData[p.key])prevTotal+=prevData[p.key].avg;});
+      var totalDelta=prevTotal?total-prevTotal:null;
+      var totalDeltaHtml=totalDelta===null?'':totalDelta>0?' <span style="color:#dc2626;font-size:10px;font-weight:700;">▲'+totalDelta+'d vs '+prevQFull+'</span>':' <span style="color:#16a34a;font-size:10px;font-weight:700;">▼'+Math.abs(totalDelta)+'d vs '+prevQFull+'</span>';
+      rows_html+='<div style="margin-bottom:16px;">';
+      rows_html+='<div style="display:flex;align-items:baseline;gap:6px;margin-bottom:6px;">'
+        +'<span style="font-size:12px;font-weight:700;color:#334155;">'+m+'</span>'
+        +'<span style="font-size:12px;color:#64748b;font-weight:600;">'+total+'d total</span>'
+        +totalDeltaHtml+'</div>';
+      // Stacked bar
+      rows_html+='<div style="display:flex;height:22px;border-radius:4px;overflow:hidden;width:100%;">';
+      CYCLE_PHASES.forEach(function(p){
+        var info=pdata[p.key];
+        if(!info) return;
+        var pct=Math.round(100*info.avg/total);
+        if(pct<1) return;
+        var col=RPT_PHASE_COLORS[p.key];
+        var prevInfo=prevData[p.key];
+        var phDelta=prevInfo?info.avg-prevInfo.avg:null;
+        var phDeltaStr=phDelta===null?'':' ('+( phDelta>0?'▲':'▼')+Math.abs(phDelta)+'d vs '+prevQFull+')';
+        rows_html+='<div title="'+p.label+': '+info.avg+'d'+phDeltaStr+'" style="width:'+pct+'%;background:'+col+'bb;border-right:1px solid #fff;display:flex;align-items:center;justify-content:center;overflow:hidden;">'
+          +(pct>8?'<span style="font-size:9px;font-weight:700;color:#fff;white-space:nowrap;">'+info.avg+'d</span>':'')
+          +'</div>';
+      });
+      rows_html+='</div>';
+      // Phase detail row
+      rows_html+='<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:5px;">';
+      CYCLE_PHASES.forEach(function(p){
+        var info=pdata[p.key]; if(!info) return;
+        var col=RPT_PHASE_COLORS[p.key];
+        var prevInfo=prevData[p.key];
+        var phDelta=prevInfo?info.avg-prevInfo.avg:null;
+        var dStr=phDelta===null?'':(phDelta>0?' <span style="color:#dc2626;">▲'+phDelta+'d</span>':' <span style="color:#16a34a;">▼'+Math.abs(phDelta)+'d</span>');
+        rows_html+='<div style="display:flex;align-items:center;gap:3px;font-size:10px;color:#475569;">'
+          +'<div style="width:8px;height:8px;border-radius:2px;background:'+col+'bb;"></div>'
+          +'<span>'+p.label+': <strong>'+info.avg+'d</strong>'+dStr+'</span></div>';
+      });
+      rows_html+='</div></div>';
+    });
+    return legend+rows_html;
+  })();
+
   // ── Build HTML ────────────────────────────────────────────────────
   const html=\`<!DOCTYPE html>
 <html lang="en">
@@ -1933,6 +2019,7 @@ function generateReport(){
     <div style="font-size:15px;font-weight:400;opacity:.85;margin-bottom:20px;">Procurement Performance Report</div>
     <div style="display:flex;gap:24px;flex-wrap:wrap;">
       <div><div style="font-size:10px;opacity:.6;text-transform:uppercase;letter-spacing:.8px;">Date of Issue</div><div style="font-size:13px;font-weight:600;margin-top:3px;">\${reportDate}</div></div>
+      <div><div style="font-size:10px;opacity:.6;text-transform:uppercase;letter-spacing:.8px;">Reporting Period</div><div style="font-size:13px;font-weight:600;margin-top:3px;">\${lastQFull} vs \${prevQFull}</div></div>
       <div><div style="font-size:10px;opacity:.6;text-transform:uppercase;letter-spacing:.8px;">Portfolio Scope</div><div style="font-size:13px;font-weight:600;margin-top:3px;">\${rows.length} Purchase Requests</div></div>
       <div><div style="font-size:10px;opacity:.6;text-transform:uppercase;letter-spacing:.8px;">Data as of</div><div style="font-size:13px;font-weight:600;margin-top:3px;">\${DASHBOARD_DATA.lastUpdated}</div></div>
       \${filterCtx.length?\`<div style="border-left:1px solid rgba(255,255,255,.2);padding-left:20px;"><div style="font-size:10px;opacity:.6;text-transform:uppercase;letter-spacing:.8px;">Active Filters</div><div style="font-size:12px;margin-top:3px;opacity:.9;">\${filterCtx.join(' · ')}</div></div>\`:''}
@@ -1971,6 +2058,11 @@ function generateReport(){
       rptPrepBreakdown
     )}
   </div>
+
+  <!-- Cycle Time Phase Breakdown -->
+  <h2 style="margin-top:28px;">Cycle Time Phase Breakdown — \${lastQFull}</h2>
+  <p style="margin-bottom:16px;font-size:12px;color:#64748b;">Average calendar days per procurement phase by method. Hover over segments for detail. Deltas shown vs \${prevQFull}.</p>
+  <div style="margin-bottom:32px;">\${phaseBreakdownHtml}</div>
 
   <!-- Key Observations -->
   <h2>Key Observations</h2>
@@ -2121,64 +2213,202 @@ function refresh(){
   renderWorkload(K.kpi5);
 }
 
-// ── Init ───────────────────────────────────────────────────────────
-document.getElementById('last-updated').textContent = DASHBOARD_DATA.lastUpdated;
-makePills('pills-year',  DASHBOARD_DATA.years,  'year');
-makePills('pills-buyer', DASHBOARD_DATA.buyers, 'buyer');
-initMcd('mcd-method',  DASHBOARD_DATA.methods,  'methods',  'All Methods');
-initMcd('mcd-project', DASHBOARD_DATA.projects, 'projects', 'All Projects');
-// KPI 6 method filter – multi-select (local to trend chart only)
-(function(){
-  const wrap=document.getElementById('pills-kpi6method');
-  const all=document.createElement('button');
-  all.className='pill on'; all.textContent='All';
-  all.onclick=()=>{
-    kpi6MethodSel.clear();
-    wrap.querySelectorAll('.pill').forEach(p=>p.classList.remove('on'));
-    all.classList.add('on');
-    if(lastKpi6Trend) renderPrepTrend(lastKpi6Trend);
+// ── Client-side CSV parser (mirrors build.js logic) ────────────────
+function clientParseCSV(text){
+  const rows=[];let col=0,inQuote=false,field='',row=[];
+  text=text.replace(/\r\n/g,'\n').replace(/\r/g,'\n');
+  for(let i=0;i<text.length;i++){
+    const ch=text[i],next=text[i+1];
+    if(inQuote){
+      if(ch==='"'&&next==='"'){field+='"';i++;}
+      else if(ch==='"'){inQuote=false;}
+      else field+=ch;
+    }else{
+      if(ch==='"') inQuote=true;
+      else if(ch===','){row.push(field);field='';col++;}
+      else if(ch==='\n'){row.push(field);rows.push(row);row=[];field='';col=0;}
+      else field+=ch;
+    }
+  }
+  if(field||row.length){row.push(field);if(row.some(c=>c!==''))rows.push(row);}
+  if(rows.length<2) return[];
+  const headers=rows[0];
+  return rows.slice(1).map(function(r){const obj={};headers.forEach(function(h,idx){obj[h.trim()]=(r[idx]||'').trim();});return obj;});
+}
+function clientParseLookup(raw){
+  if(!raw) return'';
+  try{const v=raw.trim();if(v.startsWith('{')){const o=JSON.parse(v);return o.Value||'';}if(v.startsWith('[')){const a=JSON.parse(v);return a.map(function(x){return x.Value||'';}).filter(Boolean).join('; ');}}catch(e){}
+  return raw;
+}
+function clientParseMultiLookup(raw){
+  if(!raw) return'';
+  try{const v=raw.trim();if(v.startsWith('[')){const a=JSON.parse(v);return a.map(function(x){return x.Value||'';}).filter(Boolean).join('; ');}if(v.startsWith('{')){const o=JSON.parse(v);return o.Value||'';}}catch(e){}
+  return raw;
+}
+function clientParseUser(raw){
+  if(!raw) return'';
+  try{const v=raw.trim();if(v.startsWith('{')){const o=JSON.parse(v);let n=(o.DisplayName||'').replace(/\s*\([^)]+\)\s*$/,'').trim();if(n.includes(','))n=n.split(',')[0].trim();return n;}}catch(e){}
+  return raw;
+}
+function clientParseFloat(raw){if(!raw) return null;const n=parseFloat(String(raw).replace(/,/g,''));return isNaN(n)?null:n;}
+function clientParseDate(raw){
+  if(!raw) return'';
+  const m=String(raw).match(/^(\d{4}-\d{2}-\d{2})/);
+  return m?m[1]:'';
+}
+function clientDateDiff(a,b){if(!a||!b) return null;const d=Math.round((new Date(b)-new Date(a))/86400000);return isNaN(d)?null:d;}
+function clientConsolidateMethod(raw){
+  const EXCL=new Set(['Call for Application (704)','EOI (502)','EOI (507)','Invitation for Proposal (507)','RFI (502)','Contract Amendment','Other']);
+  if(!raw||EXCL.has(raw)) return null;
+  if(/LTA|UN Award/i.test(raw)) return'LTA';
+  if(/\b(ITB|RFP|BAFO|RFQ)\b/i.test(raw)) return'Formal Solicitation';
+  if(/micro purchase|direct|very low value|re-utilisation/i.test(raw)) return'Informal Solicitation';
+  return null;
+}
+function processUploadedCSV(text){
+  const rawRows=clientParseCSV(text);
+  const processed=rawRows.map(function(r){
+    const buyer=clientParseUser(r['Buyer']);
+    const prValue=clientParseFloat(r['PRValue']);
+    const cumulativePO=clientParseFloat(r['CumulativePO_x0024_']);
+    const savings=clientParseFloat(r['Savings']);
+    const rawMethod=clientParseLookup(r['SollicitationMethod']);
+    const method=clientConsolidateMethod(rawMethod);
+    const stage=clientParseLookup(r['ProcurementStage']);
+    const planRaw=clientParseLookup(r['PartofProcurementPlan']);
+    const awardBasis=clientParseLookup(r['AwardBasis']);
+    const marketCat=clientParseMultiLookup(r['MarketCategory']);
+    const projRef=clientParseMultiLookup(r['ProjectReference']);
+    if(method===null) return null;
+    const prReceived=clientParseDate(r['PRReceived']);
+    const poDate=clientParseDate(r['POIssuancedate']);
+    const solIssued=clientParseDate(r['SollicitationIssued']);
+    const solClosed=clientParseDate(r['SolicitationClosed']);
+    const created=clientParseDate(r['Created']);
+    const modified=clientParseDate(r['Modified']);
+    const dateAssigned=clientParseDate(r['PRAssigned']);
+    const dateClosed=clientParseDate(r['DateClosed']);
+    const techOfferShared=clientParseDate(r['TechnicalOfferShared']);
+    const tcoClearance=clientParseDate(r['TCOClearance']);
+    const ltoClearance=clientParseDate(r['LTOClearance']);
+    const awardRec=clientParseDate(r['AwardRecommandation']);
+    const cycleTime=clientDateDiff(prReceived,poDate);
+    const year=prReceived?parseInt(prReceived.slice(0,4),10):(poDate?parseInt(poDate.slice(0,4),10):null);
+    const awardBasisCompetitive=/competitive/i.test(awardBasis);
+    const isCompetitive=method==='Formal Solicitation'||method==='LTA'||awardBasisCompetitive;
+    const isDirect=!isCompetitive;
+    let planBucket;
+    if(/yes.*part.*procurement.*plan/i.test(planRaw)) planBucket='Planned';
+    else if(/not planned/i.test(planRaw)) planBucket='Unplanned';
+    else planBucket='N/A';
+    return{id:r['ID']||r['ItemInternalId']||'',title:r['Title']||r['Description']||'',prgrms:r['PRGRMS_x0023_']||'',buyer,stage,status:(r['Status']||'').trim(),prValue,cumulativePO,savings,method,marketCat,projRef,awardBasis,planRaw,planBucket,isCompetitive,isDirect,prReceived,poDate,solIssued,solClosed,created,modified,dateAssigned,dateClosed,techOfferShared,tcoClearance,ltoClearance,awardRec,cycleTime,year,poNumber:r['PO_x0023_']||'',buyingUnit:clientParseLookup(r['BuyingUnit'])};
+  }).filter(function(r){return r&&!/cancelled/i.test(r.stage||'');});
+  const years=[...new Set(processed.map(function(r){return r.year;}).filter(Boolean))].sort();
+  const BUYER_EXCL=/perini|horvath|weng/i;
+  const buyers=[...new Set(processed.map(function(r){return r.buyer;}).filter(function(b){return b&&!BUYER_EXCL.test(b);}))].sort();
+  const methods=[...new Set(processed.map(function(r){return r.method;}).filter(Boolean))].sort();
+  const projectSet=new Set();
+  processed.forEach(function(r){if(r.projRef)r.projRef.split(';').map(function(p){return p.trim();}).filter(Boolean).forEach(function(p){projectSet.add(p);});});
+  const projects=[...projectSet].sort();
+  const modDates=processed.map(function(r){return r.modified;}).filter(Boolean).sort();
+  const lastUpdated=modDates.length?modDates[modDates.length-1]:new Date().toISOString().slice(0,10);
+  return{rows:processed,years,buyers,methods,projects,lastUpdated};
+}
+function handleCSVUpload(input){
+  const file=input.files[0]; if(!file) return;
+  const btn=document.getElementById('upload-btn');
+  btn.textContent='⏳ Loading…'; btn.disabled=true;
+  const reader=new FileReader();
+  reader.onload=function(e){
+    try{
+      const newData=processUploadedCSV(e.target.result);
+      DASHBOARD_DATA.rows=newData.rows;
+      DASHBOARD_DATA.years=newData.years;
+      DASHBOARD_DATA.buyers=newData.buyers;
+      DASHBOARD_DATA.methods=newData.methods;
+      DASHBOARD_DATA.projects=newData.projects;
+      DASHBOARD_DATA.lastUpdated=newData.lastUpdated;
+      AF={year:'',buyer:'',methods:new Set(),projects:new Set()};
+      kpi1MethodSel.clear(); kpi6MethodSel.clear();
+      initFilters();
+      refresh();
+      btn.textContent='✓ '+newData.rows.length+' PRs loaded';
+      btn.style.background='rgba(34,197,94,.35)';
+      document.getElementById('last-updated').textContent=newData.lastUpdated;
+      setTimeout(function(){btn.textContent='⬆ Upload CSV';btn.style.background='rgba(34,197,94,.2)';btn.disabled=false;},3000);
+    }catch(err){
+      btn.textContent='✗ Parse error';btn.style.background='rgba(220,38,38,.2)';
+      setTimeout(function(){btn.textContent='⬆ Upload CSV';btn.style.background='rgba(34,197,94,.2)';btn.disabled=false;},3000);
+      console.error('CSV upload error:',err);
+    }
+    input.value='';
   };
-  wrap.appendChild(all);
-  DASHBOARD_DATA.methods.forEach(method=>{
-    const p=document.createElement('button');
-    p.className='pill'; p.textContent=method;
-    p.onclick=()=>{
-      const wasOn=kpi6MethodSel.has(method);
+  reader.readAsText(file);
+}
+
+// ── Init ───────────────────────────────────────────────────────────
+function initFilters(){
+  document.getElementById('last-updated').textContent = DASHBOARD_DATA.lastUpdated;
+  makePills('pills-year',  DASHBOARD_DATA.years,  'year');
+  makePills('pills-buyer', DASHBOARD_DATA.buyers, 'buyer');
+  initMcd('mcd-method',  DASHBOARD_DATA.methods,  'methods',  'All Methods');
+  initMcd('mcd-project', DASHBOARD_DATA.projects, 'projects', 'All Projects');
+  // KPI 6 method filter
+  (function(){
+    const wrap=document.getElementById('pills-kpi6method');
+    wrap.innerHTML='';
+    const all=document.createElement('button');
+    all.className='pill on'; all.textContent='All';
+    all.onclick=function(){
       kpi6MethodSel.clear();
-      wrap.querySelectorAll('.pill').forEach(q=>q.classList.remove('on'));
-      if(!wasOn){ kpi6MethodSel.add(method); p.classList.add('on'); }
-      else all.classList.add('on');
+      wrap.querySelectorAll('.pill').forEach(function(p){p.classList.remove('on');});
+      all.classList.add('on');
       if(lastKpi6Trend) renderPrepTrend(lastKpi6Trend);
     };
-    wrap.appendChild(p);
-  });
-})();
-// KPI 1 method filter – single-select (radio), like KPI 6
-(function(){
-  const wrap=document.getElementById('pills-kpi1method');
-  const all=document.createElement('button');
-  all.className='pill on'; all.textContent='All';
-  all.onclick=()=>{
-    kpi1MethodSel.clear();
-    wrap.querySelectorAll('.pill').forEach(p=>p.classList.remove('on'));
-    all.classList.add('on');
-    if(lastKpi1Trend) renderCycleTrend(lastKpi1Trend);
-  };
-  wrap.appendChild(all);
-  DASHBOARD_DATA.methods.forEach(method=>{
-    const p=document.createElement('button');
-    p.className='pill'; p.textContent=method;
-    p.onclick=()=>{
-      const wasOn=kpi1MethodSel.has(method);
+    wrap.appendChild(all);
+    DASHBOARD_DATA.methods.forEach(function(method){
+      const p=document.createElement('button');
+      p.className='pill'; p.textContent=method;
+      p.onclick=function(){
+        const wasOn=kpi6MethodSel.has(method);
+        kpi6MethodSel.clear();
+        wrap.querySelectorAll('.pill').forEach(function(q){q.classList.remove('on');});
+        if(!wasOn){kpi6MethodSel.add(method);p.classList.add('on');}
+        else all.classList.add('on');
+        if(lastKpi6Trend) renderPrepTrend(lastKpi6Trend);
+      };
+      wrap.appendChild(p);
+    });
+  })();
+  // KPI 1 method filter
+  (function(){
+    const wrap=document.getElementById('pills-kpi1method');
+    wrap.innerHTML='';
+    const all=document.createElement('button');
+    all.className='pill on'; all.textContent='All';
+    all.onclick=function(){
       kpi1MethodSel.clear();
-      wrap.querySelectorAll('.pill').forEach(q=>q.classList.remove('on'));
-      if(!wasOn){ kpi1MethodSel.add(method); p.classList.add('on'); }
-      else all.classList.add('on');
+      wrap.querySelectorAll('.pill').forEach(function(p){p.classList.remove('on');});
+      all.classList.add('on');
       if(lastKpi1Trend) renderCycleTrend(lastKpi1Trend);
     };
-    wrap.appendChild(p);
-  });
-})();
+    wrap.appendChild(all);
+    DASHBOARD_DATA.methods.forEach(function(method){
+      const p=document.createElement('button');
+      p.className='pill'; p.textContent=method;
+      p.onclick=function(){
+        const wasOn=kpi1MethodSel.has(method);
+        kpi1MethodSel.clear();
+        wrap.querySelectorAll('.pill').forEach(function(q){q.classList.remove('on');});
+        if(!wasOn){kpi1MethodSel.add(method);p.classList.add('on');}
+        else all.classList.add('on');
+        if(lastKpi1Trend) renderCycleTrend(lastKpi1Trend);
+      };
+      wrap.appendChild(p);
+    });
+  })();
+}
+initFilters();
 refresh();
 <\/script>
 </body>
